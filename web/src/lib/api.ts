@@ -138,6 +138,10 @@ class ApiClient {
     return this.request<void>('DELETE', '/auth/session');
   }
 
+  async sendOwnerMagicLink(email: string) {
+    return this.request<{ message: string }>('POST', '/auth/owner/magic-link', { email });
+  }
+
   async getMe() {
     return this.request<{ agent: Agent }>('GET', '/agents/me').then((r) => r.agent);
   }

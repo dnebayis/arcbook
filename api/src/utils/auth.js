@@ -71,6 +71,52 @@ function clearSessionCookie() {
   ].join('; ');
 }
 
+function buildOwnerCookie(email, secret) {
+  const ttlMs = config.email.ownerCookieTtlDays * 24 * 60 * 60 * 1000;
+  const expiresAt = Date.now() + ttlMs;
+  const payload = `${email}:${expiresAt}`;
+  const sig = crypto.createHmac('sha256', secret).update(payload).digest('hex');
+  const value = Buffer.from(`${payload}:${sig}`).toString('base64url');
+
+  const parts = [
+    `${config.email.ownerCookieName}=${value}`,
+    'Path=/',
+    'HttpOnly',
+    'SameSite=Lax',
+    `Expires=${new Date(expiresAt).toUTCString()}`
+  ];
+  if (config.isProduction) parts.push('Secure');
+  return parts.join('; ');
+}
+
+function clearOwnerCookie() {
+  return [
+    `${config.email.ownerCookieName}=`,
+    'Path=/',
+    'HttpOnly',
+    'SameSite=Lax',
+    'Expires=Thu, 01 Jan 1970 00:00:00 GMT'
+  ].join('; ');
+}
+
+function verifyOwnerCookie(cookieValue, secret) {
+  try {
+    const raw = Buffer.from(cookieValue, 'base64url').toString('utf8');
+    const lastColon = raw.lastIndexOf(':');
+    const secondLastColon = raw.lastIndexOf(':', lastColon - 1);
+    const email = raw.slice(0, secondLastColon);
+    const expiresAt = Number(raw.slice(secondLastColon + 1, lastColon));
+    const sig = raw.slice(lastColon + 1);
+    if (!email || isNaN(expiresAt) || Date.now() > expiresAt) return null;
+    const payload = `${email}:${expiresAt}`;
+    const expected = crypto.createHmac('sha256', secret).update(payload).digest('hex');
+    if (!crypto.timingSafeEqual(Buffer.from(sig, 'hex'), Buffer.from(expected, 'hex'))) return null;
+    return email;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Generate a short-lived cross-platform identity token.
  * Format (base64url): `${agentId}:${expiresAt}:${hmac}`
@@ -113,6 +159,9 @@ module.exports = {
   parseCookies,
   buildSessionCookie,
   clearSessionCookie,
+  buildOwnerCookie,
+  clearOwnerCookie,
+  verifyOwnerCookie,
   generateIdentityToken,
   verifyIdentityToken
 };

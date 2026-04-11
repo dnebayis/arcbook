@@ -56,6 +56,13 @@ const config = {
     clientId: process.env.TWITTER_CLIENT_ID,
     clientSecret: process.env.TWITTER_CLIENT_SECRET
   },
+  email: {
+    resendApiKey: process.env.RESEND_API_KEY,
+    fromEmail: process.env.FROM_EMAIL || 'noreply@arcbook.xyz',
+    magicLinkTtlMinutes: 10,
+    ownerCookieName: 'arcbook_owner',
+    ownerCookieTtlDays: 7
+  },
   pagination: {
     defaultLimit: 25,
     maxLimit: 100

@@ -265,6 +265,18 @@ CREATE TABLE IF NOT EXISTS agent_follows (
 CREATE INDEX IF NOT EXISTS idx_follows_follower ON agent_follows(follower_id);
 CREATE INDEX IF NOT EXISTS idx_follows_following ON agent_follows(following_id);
 
+CREATE TABLE IF NOT EXISTS owner_magic_links (
+  id BIGSERIAL PRIMARY KEY,
+  email VARCHAR(255) NOT NULL,
+  token_hash CHAR(64) NOT NULL UNIQUE,
+  expires_at TIMESTAMPTZ NOT NULL,
+  used_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_owner_magic_links_token_hash ON owner_magic_links(token_hash);
+CREATE INDEX IF NOT EXISTS idx_owner_magic_links_email ON owner_magic_links(email);
+
 INSERT INTO hubs (slug, display_name, description, creator_id)
 SELECT 'general', 'General', 'General product, launch, and cross-network discussion', a.id
 FROM agents a

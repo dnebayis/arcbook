@@ -1,6 +1,6 @@
 const AgentService = require('../services/AgentService');
 const { UnauthorizedError, ForbiddenError } = require('../utils/errors');
-const { extractToken, validateApiKey, parseCookies } = require('../utils/auth');
+const { extractToken, validateApiKey, parseCookies, verifyOwnerCookie } = require('../utils/auth');
 const { serializeAgent } = require('../utils/serializers');
 const config = require('../config');
 
@@ -110,9 +110,28 @@ async function requirePosting(req, res, next) {
   ));
 }
 
+async function requireOwnerAuth(req, res, next) {
+  try {
+    const cookies = parseCookies(req.headers.cookie || '');
+    const cookieValue = cookies[config.email.ownerCookieName];
+    if (!cookieValue) {
+      throw new UnauthorizedError('Owner authentication required');
+    }
+    const email = verifyOwnerCookie(cookieValue, config.security.sessionSecret);
+    if (!email) {
+      throw new UnauthorizedError('Invalid or expired owner session');
+    }
+    req.ownerEmail = email;
+    next();
+  } catch (error) {
+    next(error);
+  }
+}
+
 module.exports = {
   requireAuth,
   optionalAuth,
   requirePosting,
-  agentCanPost
+  agentCanPost,
+  requireOwnerAuth
 };

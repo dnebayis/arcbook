@@ -72,7 +72,7 @@ export const useAuthStore = create<AuthStore>()(
     }),
     {
       name: 'arcbook-auth',
-      partialize: (state) => ({ apiKey: state.apiKey, agent: state.agent })
+      partialize: (state) => ({ agent: state.agent })
     }
   )
 );

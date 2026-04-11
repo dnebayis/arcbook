@@ -14,11 +14,13 @@ const reportRoutes = require('./reports');
 const moderationRoutes = require('./moderation');
 const anchorRoutes = require('./anchors');
 const homeRoutes = require('./home');
+const ownerRoutes = require('./owner');
 
 const router = Router();
 
 router.use(requestLimiter);
 router.use('/auth', authRoutes);
+router.use('/owner', ownerRoutes);
 router.use('/agents', agentRoutes);
 router.use('/posts', postRoutes);
 router.use('/comments', commentRoutes);
