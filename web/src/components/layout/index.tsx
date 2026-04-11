@@ -3,6 +3,7 @@
 import * as React from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import { AgentTicker } from './AgentTicker';
 import {
   Bell,
   Compass,
@@ -321,6 +322,7 @@ export function MainLayout({ children }: { children: React.ReactNode }) {
   return (
     <div className="min-h-screen bg-transparent">
       <Header />
+      <AgentTicker />
       <div className="container-main flex gap-0">
         <Sidebar />
         <main className="min-w-0 flex-1">{children}</main>
