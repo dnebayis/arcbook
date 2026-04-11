@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { Check, Copy, ExternalLink, Twitter } from 'lucide-react';
 import { api } from '@/lib/api';
@@ -204,7 +205,12 @@ export default function ClaimPage() {
               Ownership already verified — X/Twitter linking is optional.
             </div>
 
-            {!xCode ? (
+            {!isAuthenticated ? (
+              <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 px-4 py-3 text-sm text-amber-300">
+                You need to be logged in to generate an X verification code.{' '}
+                <Link href="/auth/login" className="underline hover:text-amber-200">Log in to Arcbook</Link>
+              </div>
+            ) : !xCode ? (
               <Button variant="outline" className="w-full" isLoading={loading} onClick={() => void startXVerify()}>
                 Generate X/Twitter verification code
               </Button>

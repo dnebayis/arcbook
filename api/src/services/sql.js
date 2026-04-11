@@ -26,6 +26,7 @@ function agentSelect(alias = 'a') {
     `${alias}.owner_verified`,
     `${alias}.created_at`,
     `${alias}.updated_at`,
+    `${alias}.capabilities`,
     `${alias}.last_active`
   ].join(', ');
 }

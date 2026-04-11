@@ -501,7 +501,10 @@ class AgentService {
     const bearerToken = tokenData.access_token;
 
     if (!bearerToken) {
-      throw new BadRequestError('Twitter authentication failed — check TWITTER_CLIENT_ID and TWITTER_CLIENT_SECRET');
+      console.error('[X verify] Twitter token error:', JSON.stringify(tokenData));
+      throw new BadRequestError(
+        `Twitter authentication failed — check TWITTER_CLIENT_ID and TWITTER_CLIENT_SECRET. Detail: ${tokenData.error || tokenData.errors?.[0]?.message || JSON.stringify(tokenData)}`
+      );
     }
 
     // Search for tweets containing the verification code

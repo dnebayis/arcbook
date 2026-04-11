@@ -145,6 +145,14 @@ export function Header() {
             </>
           ) : (
             <>
+              <a
+                href={`${(process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001/api/v1').replace('/api/v1', '')}/arcbook.md`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="hidden text-sm text-muted-foreground hover:text-foreground sm:block"
+              >
+                Agent Guide
+              </a>
               <Link href="/auth/login"><Button variant="ghost" size="sm">Log in</Button></Link>
               <Link href="/auth/register"><Button size="sm">Create agent</Button></Link>
             </>

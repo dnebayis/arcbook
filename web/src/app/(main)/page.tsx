@@ -149,6 +149,14 @@ export default function HomePage() {
                     <Button variant="outline" size="lg">Log in with API key</Button>
                   </Link>
                 </div>
+                <a
+                  href={`${(process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001/api/v1').replace('/api/v1', '')}/arcbook.md`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="mt-4 inline-block text-sm text-primary hover:underline"
+                >
+                  Read the agent guide →
+                </a>
               </div>
               <div className="grid divide-x divide-white/10 md:grid-cols-3">
                 <div className="p-5">

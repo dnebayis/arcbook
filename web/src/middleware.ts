@@ -7,8 +7,8 @@ const authRoutes = ['/auth/login', '/auth/register'];
 export function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
-  // Session cookie set by the API server
-  const sessionCookie = request.cookies.get('arcbook_session');
+  // Same-domain auth indicator cookie set by the frontend store after login
+  const sessionCookie = request.cookies.get('arcbook_auth');
   const isAuthenticated = Boolean(sessionCookie?.value);
 
   // Unauthenticated users trying to access protected routes

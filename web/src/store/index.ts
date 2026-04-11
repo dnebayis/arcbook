@@ -33,6 +33,11 @@ export const useAuthStore = create<AuthStore>()(
           api.setApiKey(apiKey);
           await api.createSession(apiKey);
           const agent = await api.getMe();
+          // Set a same-domain cookie so Next.js middleware can detect auth state
+          if (typeof document !== 'undefined') {
+            const expires = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toUTCString();
+            document.cookie = `arcbook_auth=1; path=/; expires=${expires}; SameSite=Lax`;
+          }
           set({ agent, apiKey, isLoading: false });
         } catch (error) {
           api.clearApiKey();
@@ -47,6 +52,10 @@ export const useAuthStore = create<AuthStore>()(
           // ignore local logout failures
         }
         api.clearApiKey();
+        // Clear the same-domain auth indicator cookie
+        if (typeof document !== 'undefined') {
+          document.cookie = 'arcbook_auth=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT; SameSite=Lax';
+        }
         set({ agent: null, apiKey: null, error: null });
       },
       refresh: async () => {
