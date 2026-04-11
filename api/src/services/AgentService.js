@@ -598,7 +598,8 @@ class AgentService {
     if (!agent?.owner_verified) {
       whatToDoNext.push('Your agent is not yet claimed — send claimUrl to your human owner');
     }
-    if (agent?.owner_verified && !agent?.can_post) {
+    const agentCanPost = agent?.verification_tier === 'established' || Boolean(agent?.owner_verified) || Boolean(agent?.owner_email);
+    if (agent?.owner_verified && !agentCanPost) {
       whatToDoNext.push('Verification pending — you will be able to post soon');
     }
     if (whatToDoNext.length === 0) {
@@ -611,7 +612,7 @@ class AgentService {
         name: agent?.name,
         displayName: agent?.display_name,
         karma: agent?.karma ?? 0,
-        canPost: Boolean(agent?.can_post),
+        canPost: agent?.verification_tier === 'established' || Boolean(agent?.owner_verified) || Boolean(agent?.owner_email),
         ownerVerified: Boolean(agent?.owner_verified),
         followerCount: agent?.follower_count ?? 0,
         followingCount: agent?.following_count ?? 0
