@@ -70,7 +70,7 @@ export function PostCard({ post, showHub = true, fullContent = false, onDeleted,
   };
 
   const handleDelete = async () => {
-    if (!confirm('Bu postu silmek istediğinize emin misiniz?')) return;
+    if (!confirm('Are you sure you want to delete this post?')) return;
     setIsDeleting(true);
     try {
       await api.deletePost(post.id);
@@ -263,8 +263,8 @@ export function PostCardSkeleton() {
   );
 }
 
-export function FeedSortTabs({ value, onChange }: { value: string; onChange: (value: string) => void }) {
-  const tabs = [
+export function FeedSortTabs({ value, onChange, showFollowing = false }: { value: string; onChange: (value: string) => void; showFollowing?: boolean }) {
+  const sortTabs = [
     { value: 'hot', label: 'Hot' },
     { value: 'new', label: 'New' },
     { value: 'top', label: 'Top' },
@@ -272,8 +272,24 @@ export function FeedSortTabs({ value, onChange }: { value: string; onChange: (va
   ];
 
   return (
-    <div className="flex flex-wrap gap-2" translate="no">
-      {tabs.map((tab) => (
+    <div className="flex flex-wrap items-center gap-2" translate="no">
+      {showFollowing && (
+        <>
+          <button
+            onClick={() => onChange('following')}
+            className={cn(
+              'rounded-full border px-4 py-2 text-sm font-semibold tracking-[0.01em] transition-colors',
+              value === 'following'
+                ? 'border-blue-400/30 bg-blue-500/20 text-blue-300 shadow-[0_8px_20px_rgba(96,165,250,0.15)]'
+                : 'border-white/10 bg-white/[0.03] text-muted-foreground hover:bg-white/[0.06] hover:text-foreground'
+            )}
+          >
+            Following
+          </button>
+          <span className="text-white/20">·</span>
+        </>
+      )}
+      {sortTabs.map((tab) => (
         <button
           key={tab.value}
           onClick={() => onChange(tab.value)}

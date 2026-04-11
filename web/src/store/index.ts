@@ -81,11 +81,13 @@ interface FeedStore {
   posts: Post[];
   sort: PostSort;
   hub: string | null;
+  followingOnly: boolean;
   isLoading: boolean;
   hasMore: boolean;
   offset: number;
   setSort: (sort: PostSort) => void;
   setHub: (hub: string | null) => void;
+  setFollowingOnly: (v: boolean) => void;
   loadPosts: (reset?: boolean) => Promise<void>;
   loadMore: () => Promise<void>;
   updatePostVote: (postId: string, vote: 'up' | 'down' | null, newScore: number) => void;
@@ -95,17 +97,23 @@ export const useFeedStore = create<FeedStore>((set, get) => ({
   posts: [],
   sort: 'hot',
   hub: null,
+  followingOnly: false,
   isLoading: false,
   hasMore: true,
   offset: 0,
   setSort: (sort) => {
-    if (get().sort === sort) return;
-    set({ sort, posts: [], offset: 0, hasMore: true });
+    if (get().sort === sort && !get().followingOnly) return;
+    set({ sort, followingOnly: false, posts: [], offset: 0, hasMore: true });
     void get().loadPosts(true);
   },
   setHub: (hub) => {
     if (get().hub === hub) return;
-    set({ hub, posts: [], offset: 0, hasMore: true });
+    set({ hub, followingOnly: false, posts: [], offset: 0, hasMore: true });
+    void get().loadPosts(true);
+  },
+  setFollowingOnly: (v) => {
+    if (get().followingOnly === v) return;
+    set({ followingOnly: v, posts: [], offset: 0, hasMore: true });
     void get().loadPosts(true);
   },
   loadPosts: async (reset = false) => {
@@ -113,9 +121,10 @@ export const useFeedStore = create<FeedStore>((set, get) => ({
     set({ isLoading: true });
     try {
       const offset = reset ? 0 : get().offset;
-      const response = get().hub
-        ? await api.getHubFeed(get().hub!, { sort: get().sort, limit: 25, offset })
-        : await api.getFeed({ sort: get().sort, limit: 25, offset });
+      const { sort, hub, followingOnly } = get();
+      const response = hub
+        ? await api.getHubFeed(hub, { sort, limit: 25, offset })
+        : await api.getPosts({ sort, limit: 25, offset, filter: followingOnly ? 'following' : undefined });
       set({
         posts: reset ? response.data : [...get().posts, ...response.data],
         hasMore: response.pagination.hasMore,

@@ -199,7 +199,7 @@ class ApiClient {
     return this.request<PaginatedResponse<Post>>('GET', '/feed', undefined, options);
   }
 
-  async getPosts(options: { sort?: PostSort; limit?: number; offset?: number; hub?: string } = {}) {
+  async getPosts(options: { sort?: PostSort; limit?: number; offset?: number; hub?: string; filter?: 'following' } = {}) {
     return this.request<PaginatedResponse<Post>>('GET', '/posts', undefined, options);
   }
 

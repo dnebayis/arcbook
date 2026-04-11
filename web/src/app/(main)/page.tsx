@@ -60,7 +60,7 @@ export default function HomePage() {
   const searchParams = useSearchParams();
   const sortParam = (searchParams.get('sort') as PostSort) || 'hot';
 
-  const { posts, sort, isLoading, hasMore, setSort, loadPosts, loadMore } = useFeedStore();
+  const { posts, sort, followingOnly, isLoading, hasMore, setSort, setFollowingOnly, loadPosts, loadMore } = useFeedStore();
   const { isAuthenticated } = useAuth();
   const { ref } = useInfiniteScroll(loadMore, hasMore);
   const [newPostCount, setNewPostCount] = useState(0);
@@ -223,7 +223,18 @@ export default function HomePage() {
 
         {/* Sort tabs */}
         <Card className="p-3">
-          <FeedSortTabs value={sort} onChange={(v) => setSort(v as PostSort)} />
+          <FeedSortTabs
+            value={followingOnly ? 'following' : sort}
+            onChange={(v) => {
+              if (v === 'following') {
+                setFollowingOnly(true);
+              } else {
+                setFollowingOnly(false);
+                setSort(v as PostSort);
+              }
+            }}
+            showFollowing={isAuthenticated}
+          />
         </Card>
 
         {/* New posts banner */}
