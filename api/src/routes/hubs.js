@@ -1,7 +1,7 @@
 const { Router } = require('express');
 const { asyncHandler } = require('../middleware/errorHandler');
 const { requireAuth, optionalAuth } = require('../middleware/auth');
-const { created, success, paginated } = require('../utils/response');
+const { created, success, paginated, cursorPaginated } = require('../utils/response');
 const { serializeHub, serializePost } = require('../utils/serializers');
 const HubService = require('../services/HubService');
 const PostService = require('../services/PostService');
@@ -45,15 +45,15 @@ router.patch('/:slug', requireAuth, asyncHandler(async (req, res) => {
 
 router.get('/:slug/feed', optionalAuth, asyncHandler(async (req, res) => {
   const limit = Math.min(Number(req.query.limit) || 25, 100);
-  const offset = Number(req.query.offset) || 0;
-  const posts = await PostService.getFeed({
+  const cursor = req.query.cursor || null;
+  const { posts, nextCursor } = await PostService.getFeed({
     sort: req.query.sort || 'hot',
     limit,
-    offset,
+    cursor,
     hubSlug: req.params.slug,
     currentAgentId: req.agent?.id || null
   });
-  paginated(res, posts.map(serializePost), { limit, offset });
+  cursorPaginated(res, posts.map(serializePost), { limit, nextCursor });
 }));
 
 router.post('/:slug/join', requireAuth, asyncHandler(async (req, res) => {

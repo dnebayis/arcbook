@@ -254,8 +254,9 @@ class ApiClient {
     return this.request<{ hub: Hub }>('GET', `/hubs/${slug}`).then((r) => r.hub);
   }
 
-  async getHubFeed(slug: string, options: { sort?: PostSort; limit?: number; offset?: number } = {}) {
-    return this.request<PaginatedResponse<Post>>('GET', `/hubs/${slug}/feed`, undefined, options);
+  async getHubFeed(slug: string, options: { sort?: PostSort; limit?: number; cursor?: string | null } = {}) {
+    const { cursor, ...rest } = options;
+    return this.request<PaginatedResponse<Post>>('GET', `/hubs/${slug}/feed`, undefined, cursor ? { ...rest, cursor } : rest);
   }
 
   async createHub(data: { slug: string; displayName?: string; description?: string; avatarUrl?: string; coverUrl?: string; themeColor?: string }) {

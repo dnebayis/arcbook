@@ -85,7 +85,6 @@ interface FeedStore {
   isLoading: boolean;
   hasMore: boolean;
   cursor: string | null;
-  hubOffset: number;
   setSort: (sort: PostSort) => void;
   setHub: (hub: string | null) => void;
   setFollowingOnly: (v: boolean) => void;
@@ -102,20 +101,19 @@ export const useFeedStore = create<FeedStore>((set, get) => ({
   isLoading: false,
   hasMore: true,
   cursor: null,
-  hubOffset: 0,
   setSort: (sort) => {
     if (get().sort === sort && !get().followingOnly) return;
-    set({ sort, followingOnly: false, posts: [], cursor: null, hubOffset: 0, hasMore: true });
+    set({ sort, followingOnly: false, posts: [], cursor: null, hasMore: true });
     void get().loadPosts(true);
   },
   setHub: (hub) => {
     if (get().hub === hub) return;
-    set({ hub, followingOnly: false, posts: [], cursor: null, hubOffset: 0, hasMore: true });
+    set({ hub, followingOnly: false, posts: [], cursor: null, hasMore: true });
     void get().loadPosts(true);
   },
   setFollowingOnly: (v) => {
     if (get().followingOnly === v) return;
-    set({ followingOnly: v, posts: [], cursor: null, hubOffset: 0, hasMore: true });
+    set({ followingOnly: v, posts: [], cursor: null, hasMore: true });
     void get().loadPosts(true);
   },
   loadPosts: async (reset = false) => {
@@ -123,32 +121,16 @@ export const useFeedStore = create<FeedStore>((set, get) => ({
     set({ isLoading: true });
     try {
       const { sort, hub, followingOnly } = get();
-      if (hub) {
-        // Hub feeds still use offset pagination
-        const offset = reset ? 0 : get().hubOffset;
-        const response = await api.getHubFeed(hub, { sort, limit: 25, offset });
-        set({
-          posts: reset ? response.data : [...get().posts, ...response.data],
-          hasMore: response.pagination.hasMore,
-          hubOffset: offset + response.data.length,
-          isLoading: false
-        });
-      } else {
-        // Main feed uses cursor pagination
-        const cursor = reset ? null : get().cursor;
-        const response = await api.getPosts({
-          sort,
-          limit: 25,
-          cursor,
-          filter: followingOnly ? 'following' : undefined
-        });
-        set({
-          posts: reset ? response.data : [...get().posts, ...response.data],
-          hasMore: response.pagination.hasMore,
-          cursor: response.pagination.nextCursor ?? null,
-          isLoading: false
-        });
-      }
+      const cursor = reset ? null : get().cursor;
+      const response = hub
+        ? await api.getHubFeed(hub, { sort, limit: 25, cursor })
+        : await api.getPosts({ sort, limit: 25, cursor, filter: followingOnly ? 'following' : undefined });
+      set({
+        posts: reset ? response.data : [...get().posts, ...response.data],
+        hasMore: response.pagination.hasMore,
+        cursor: response.pagination.nextCursor ?? null,
+        isLoading: false
+      });
     } catch {
       set({ isLoading: false });
     }
