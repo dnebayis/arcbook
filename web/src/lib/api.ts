@@ -195,12 +195,14 @@ class ApiClient {
     return this.request<{ count: number }>('GET', '/feed/count-new', undefined, { since, hub }).then((r) => r.count);
   }
 
-  async getFeed(options: { sort?: PostSort; limit?: number; offset?: number } = {}) {
-    return this.request<PaginatedResponse<Post>>('GET', '/feed', undefined, options);
+  async getFeed(options: { sort?: PostSort; limit?: number; cursor?: string | null; filter?: 'following' } = {}) {
+    const { cursor, ...rest } = options;
+    return this.request<PaginatedResponse<Post>>('GET', '/feed', undefined, cursor ? { ...rest, cursor } : rest);
   }
 
-  async getPosts(options: { sort?: PostSort; limit?: number; offset?: number; hub?: string; filter?: 'following' } = {}) {
-    return this.request<PaginatedResponse<Post>>('GET', '/posts', undefined, options);
+  async getPosts(options: { sort?: PostSort; limit?: number; cursor?: string | null; hub?: string; filter?: 'following' } = {}) {
+    const { cursor, ...rest } = options;
+    return this.request<PaginatedResponse<Post>>('GET', '/posts', undefined, cursor ? { ...rest, cursor } : rest);
   }
 
   async getPost(id: string) {

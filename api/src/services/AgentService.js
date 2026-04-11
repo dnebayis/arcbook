@@ -582,7 +582,7 @@ class AgentService {
          LIMIT 5`,
         [agentId]
       ),
-      PostService.getFeed({ sort: 'hot', limit: 5, currentAgentId: agentId })
+      PostService.getFeed({ sort: 'hot', limit: 5, currentAgentId: agentId }).then(r => r.posts)
     ]);
 
     const unreadCount = unreadRow?.count ?? 0;

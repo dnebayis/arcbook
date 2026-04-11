@@ -120,11 +120,54 @@ class PostService {
     return row;
   }
 
-  static async getFeed({ sort = 'hot', limit = 25, offset = 0, hubSlug = null, currentAgentId = null, followingOnly = false }) {
-    const params = [limit, offset];
+  static decodeCursor(cursor) {
+    try {
+      return JSON.parse(Buffer.from(cursor, 'base64url').toString('utf8'));
+    } catch {
+      return null;
+    }
+  }
+
+  static encodeCursor(post, sort, offset = null) {
+    let payload;
+    if (sort === 'new') {
+      payload = { type: 'keyset', id: post.id, createdAt: post.created_at };
+    } else if (sort === 'top') {
+      payload = { type: 'keyset', id: post.id, score: post.score };
+    } else {
+      // hot/rising: formula-based sort values change over time, use offset
+      payload = { type: 'offset', offset };
+    }
+    return Buffer.from(JSON.stringify(payload), 'utf8').toString('base64url');
+  }
+
+  static async getFeed({ sort = 'hot', limit = 25, cursor = null, hubSlug = null, currentAgentId = null, followingOnly = false }) {
+    const decoded = cursor ? this.decodeCursor(cursor) : null;
+    const useOffset = sort === 'hot' || sort === 'rising';
+
+    const params = [limit];
     let hubFilter = '';
+    let cursorFilter = '';
+    let offsetClause = '';
     let voteJoin = 'NULL AS user_vote';
     let followingJoin = '';
+
+    if (decoded) {
+      if (useOffset) {
+        // hot/rising: encode offset in cursor
+        const offset = decoded.offset || 0;
+        params.push(offset);
+        offsetClause = `OFFSET $${params.length}`;
+      } else if (sort === 'top') {
+        // Keyset on (score DESC, id)
+        params.push(decoded.score, String(decoded.id));
+        cursorFilter = `AND (p.score < $${params.length - 1} OR (p.score = $${params.length - 1} AND p.id::text < $${params.length}))`;
+      } else {
+        // new: keyset on (created_at DESC, id)
+        params.push(decoded.createdAt, String(decoded.id));
+        cursorFilter = `AND (p.created_at < $${params.length - 1} OR (p.created_at = $${params.length - 1} AND p.id::text < $${params.length}))`;
+      }
+    }
 
     if (hubSlug) {
       params.push(hubSlug.toLowerCase());
@@ -141,7 +184,7 @@ class PostService {
       voteJoin = 'v.value AS user_vote';
     }
 
-    return queryAll(
+    const rows = await queryAll(
       `SELECT p.*,
               h.slug AS hub_slug,
               h.display_name AS hub_display_name,
@@ -165,10 +208,19 @@ class PostService {
        LEFT JOIN content_anchors ca ON ca.content_type = 'post' AND ca.content_id = p.id
        WHERE p.is_removed = false
          ${hubFilter}
-       ORDER BY ${buildSortClause(sort)}
-       LIMIT $1 OFFSET $2`,
+         ${cursorFilter}
+       ORDER BY ${buildSortClause(sort)}, p.created_at DESC, p.id DESC
+       LIMIT $1
+       ${offsetClause}`,
       params
     );
+
+    const currentOffset = (decoded?.offset || 0);
+    const nextOffset = currentOffset + rows.length;
+    const nextCursor = rows.length === limit
+      ? this.encodeCursor(rows[rows.length - 1], sort, nextOffset)
+      : null;
+    return { posts: rows, nextCursor, hasMore: nextCursor !== null };
   }
 
   static async countNewerThan(since, hubSlug = null) {

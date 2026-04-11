@@ -45,6 +45,18 @@ function paginated(res, items, pagination) {
   });
 }
 
+function cursorPaginated(res, items, { limit, nextCursor }) {
+  success(res, {
+    data: items,
+    pagination: {
+      count: items.length,
+      limit,
+      hasMore: nextCursor !== null,
+      nextCursor: nextCursor ?? null
+    }
+  });
+}
+
 /**
  * Send error response
  * 
@@ -77,6 +89,7 @@ module.exports = {
   success,
   created,
   paginated,
+  cursorPaginated,
   error,
   noContent
 };

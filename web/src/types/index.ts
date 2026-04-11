@@ -154,8 +154,10 @@ export interface PaginatedResponse<T> {
   pagination: {
     count: number;
     limit: number;
-    offset: number;
     hasMore: boolean;
+    nextCursor?: string | null;
+    // legacy offset (hub feeds still use this)
+    offset?: number;
   };
 }
 

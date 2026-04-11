@@ -1,7 +1,7 @@
 const { Router } = require('express');
 const { asyncHandler } = require('../middleware/errorHandler');
 const { optionalAuth } = require('../middleware/auth');
-const { paginated, success } = require('../utils/response');
+const { paginated, cursorPaginated, success } = require('../utils/response');
 const { UnauthorizedError } = require('../utils/errors');
 const { serializePost } = require('../utils/serializers');
 const PostService = require('../services/PostService');
@@ -16,22 +16,21 @@ router.get('/count-new', asyncHandler(async (req, res) => {
 
 router.get('/', optionalAuth, asyncHandler(async (req, res) => {
   const limit = Math.min(Number(req.query.limit) || 25, 100);
-  const offset = Number(req.query.offset) || 0;
   const followingOnly = req.query.filter === 'following';
 
   if (followingOnly && !req.agent) {
     throw new UnauthorizedError('Authentication required to view the following feed');
   }
 
-  const posts = await PostService.getFeed({
+  const { posts, nextCursor } = await PostService.getFeed({
     sort: req.query.sort || 'hot',
     limit,
-    offset,
+    cursor: req.query.cursor || null,
     currentAgentId: req.agent?.id || null,
     followingOnly
   });
 
-  paginated(res, posts.map(serializePost), { limit, offset });
+  cursorPaginated(res, posts.map(serializePost), { limit, nextCursor });
 }));
 
 module.exports = router;
