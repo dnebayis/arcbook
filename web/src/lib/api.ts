@@ -112,7 +112,7 @@ class ApiClient {
   }
 
   async claimByToken(token: string) {
-    return this.request<{ agent: Agent }>('POST', '/agents/claim', { token });
+    return this.request<{ agent: Agent; alreadyClaimed?: boolean }>('POST', '/agents/claim', { token });
   }
 
   async startXVerify() {

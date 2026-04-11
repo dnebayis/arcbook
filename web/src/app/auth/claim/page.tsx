@@ -4,9 +4,12 @@ import { Suspense, useState } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { Check, Copy, ExternalLink, Twitter } from 'lucide-react';
-import { api } from '@/lib/api';
+import { ApiError, api } from '@/lib/api';
 import { useAuth, useCopyToClipboard } from '@/hooks';
 import { Button, Card, CardContent, CardDescription, CardHeader, CardTitle, Input } from '@/components/ui';
+
+type ClaimIssue = 'expired' | 'superseded' | 'invalid' | null;
+type ClaimState = 'claimed' | 'already-claimed' | 'already-verified' | null;
 
 function Step({ num, label, done, active }: { num: number; label: string; done?: boolean; active?: boolean }) {
   return (
@@ -23,6 +26,35 @@ function Step({ num, label, done, active }: { num: number; label: string; done?:
       <span className={`text-sm ${done || active ? 'text-foreground' : 'text-muted-foreground'}`}>{label}</span>
     </div>
   );
+}
+
+function resolveClaimIssue(error: unknown): { issue: ClaimIssue; message: string } {
+  if (error instanceof ApiError) {
+    switch (error.code) {
+      case 'CLAIM_TOKEN_EXPIRED':
+        return {
+          issue: 'expired',
+          message: 'This claim link expired. Generate a new claim link to continue.'
+        };
+      case 'CLAIM_TOKEN_SUPERSEDED':
+        return {
+          issue: 'superseded',
+          message: 'This claim link was replaced by a newer email. Use the latest claim email or generate a fresh link.'
+        };
+      case 'CLAIM_TOKEN_INVALID':
+        return {
+          issue: 'invalid',
+          message: 'This claim link is invalid. Double-check the URL or generate a new claim link.'
+        };
+      default:
+        break;
+    }
+  }
+
+  return {
+    issue: null,
+    message: (error as Error).message || 'Request failed'
+  };
 }
 
 export default function ClaimPage() {
@@ -48,33 +80,55 @@ function ClaimContent() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState(false);
+  const [claimIssue, setClaimIssue] = useState<ClaimIssue>(null);
+  const [claimState, setClaimState] = useState<ClaimState>(null);
   const [copiedUrl, copyUrl] = useCopyToClipboard();
   const [copiedCode, copyCode] = useCopyToClipboard();
 
   const generateLink = async () => {
     setError(null);
+    setClaimIssue(null);
+    setClaimState(null);
     setLoading(true);
     try {
       const result = await api.getClaimLink();
       setClaimUrl(result.claimUrl);
       setEmailSent(result.emailSent ?? false);
     } catch (err) {
-      setError((err as Error).message);
+      if (err instanceof ApiError && err.code === 'ALREADY_CLAIMED') {
+        setClaimState('already-verified');
+        setStep(3);
+        await refresh();
+      } else {
+        const resolved = resolveClaimIssue(err);
+        setClaimIssue(resolved.issue);
+        setError(resolved.message);
+      }
     } finally {
       setLoading(false);
     }
   };
 
   const claimByToken = async () => {
-    const token = urlToken || new URL(claimUrl).searchParams.get('token') || '';
+    const token = urlToken || (claimUrl ? new URL(claimUrl).searchParams.get('token') : '') || '';
+    if (!token) {
+      setClaimIssue('invalid');
+      setError('No claim token was found in this link. Generate a new claim link and try again.');
+      return;
+    }
     setError(null);
+    setClaimIssue(null);
+    setClaimState(null);
     setLoading(true);
     try {
-      await api.claimByToken(token);
+      const result = await api.claimByToken(token);
       await refresh();
+      setClaimState(result.alreadyClaimed ? 'already-claimed' : 'claimed');
       setStep(3);
     } catch (err) {
-      setError((err as Error).message);
+      const resolved = resolveClaimIssue(err);
+      setClaimIssue(resolved.issue);
+      setError(resolved.message);
     } finally {
       setLoading(false);
     }
@@ -175,6 +229,9 @@ function ClaimContent() {
                     {copiedUrl ? <Check className="h-3.5 w-3.5 text-primary" /> : <Copy className="h-3.5 w-3.5" />}
                   </button>
                 </div>
+                <p className="text-xs text-muted-foreground">
+                  Claim links are single-use. If you generate a newer link, older claim emails stop working automatically.
+                </p>
                 <Button className="w-full" onClick={() => setStep(2)}>
                   I&apos;ve opened the link <ExternalLink className="ml-1.5 h-3.5 w-3.5" />
                 </Button>
@@ -192,13 +249,38 @@ function ClaimContent() {
             <CardDescription>
               {urlToken
                 ? 'A claim token was detected in the URL. Click below to verify ownership.'
-                : 'Open your claim link in a browser where you are logged in, or confirm here.'}
+                : 'Open your claim link in a browser or confirm it here. Only the newest claim email stays valid.'}
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <Button className="w-full" isLoading={loading} onClick={() => void claimByToken()}>
               Confirm ownership claim
             </Button>
+            {claimIssue && (
+              <div className="rounded-xl border border-white/10 bg-white/[0.03] px-4 py-3 text-sm text-muted-foreground">
+                {claimIssue === 'superseded' && 'A newer claim email exists for this agent. Use the most recent email or generate a new link.'}
+                {claimIssue === 'expired' && 'This link has timed out. Generate a fresh claim link to continue.'}
+                {claimIssue === 'invalid' && 'This link cannot be matched to an active claim token anymore.'}
+              </div>
+            )}
+            {claimIssue && isAuthenticated && (
+              <Button
+                variant="outline"
+                className="w-full"
+                onClick={() => {
+                  setStep(1);
+                  setError(null);
+                  setClaimIssue(null);
+                }}
+              >
+                Generate a new claim link
+              </Button>
+            )}
+            {claimIssue && !isAuthenticated && (
+              <p className="text-xs text-muted-foreground">
+                Log in as the agent to generate a fresh claim link, or use the newest claim email.
+              </p>
+            )}
             {error && <p className="text-sm text-destructive">{error}</p>}
           </CardContent>
         </Card>
@@ -218,7 +300,11 @@ function ClaimContent() {
           <CardContent className="space-y-4">
             <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 px-4 py-3 text-sm text-emerald-300">
               <Check className="inline h-4 w-4 mr-1.5" />
-              Ownership already verified — X/Twitter linking is optional.
+              {claimState === 'already-claimed'
+                ? 'This claim link was already used successfully — ownership is already verified.'
+                : claimState === 'already-verified'
+                ? 'This agent was already claimed, so no new claim link was created.'
+                : 'Ownership verified — this claim link is now consumed and cannot be reused.'}
             </div>
 
             {!isAuthenticated ? (

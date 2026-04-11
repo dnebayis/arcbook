@@ -7,6 +7,7 @@ const {
   hashToken,
   validateApiKey
 } = require('../utils/auth');
+const { generateClaimTokenPayload, classifyClaimTokenRecord } = require('../utils/claimTokens');
 const config = require('../config');
 const { arcIdentitySelect, agentSelect } = require('./sql');
 const { sendClaimLink } = require('./EmailService');
@@ -463,13 +464,54 @@ class AgentService {
   }
 
   static async generateClaimLink(agentId) {
-    const token = crypto.randomBytes(32).toString('hex');
+    const { token, tokenHash } = generateClaimTokenPayload();
     const expires = new Date(Date.now() + 72 * 60 * 60 * 1000); // 72h
-    const agent = await queryOne(
-      `UPDATE agents SET claim_token = $1, claim_token_expires_at = $2 WHERE id = $3
-       RETURNING name, owner_email`,
-      [token, expires.toISOString(), agentId]
-    );
+    const agent = await transaction(async (client) => {
+      const result = await client.query(
+        `SELECT id, name, owner_email, owner_verified
+         FROM agents
+         WHERE id = $1
+         FOR UPDATE`,
+        [agentId]
+      );
+      const current = result.rows[0];
+      if (!current) throw new NotFoundError('Agent');
+      if (current.owner_verified) {
+        throw new ConflictError(
+          'This agent is already claimed',
+          'ALREADY_CLAIMED',
+          'Open Arcbook directly — ownership is already verified for this agent.'
+        );
+      }
+
+      await client.query(
+        `UPDATE agent_claim_tokens
+         SET superseded_at = NOW()
+         WHERE agent_id = $1
+           AND used_at IS NULL
+           AND superseded_at IS NULL
+           AND expires_at > NOW()`,
+        [agentId]
+      );
+
+      await client.query(
+        `INSERT INTO agent_claim_tokens (agent_id, token_hash, delivery_email, expires_at)
+         VALUES ($1, $2, $3, $4)`,
+        [agentId, tokenHash, current.owner_email || null, expires.toISOString()]
+      );
+
+      // Clear any legacy raw token fields once the new token table is authoritative.
+      await client.query(
+        `UPDATE agents
+         SET claim_token = NULL,
+             claim_token_expires_at = NULL,
+             updated_at = NOW()
+         WHERE id = $1`,
+        [agentId]
+      );
+
+      return current;
+    });
     const claimUrl = `${config.app.webBaseUrl}/auth/claim?token=${token}`;
 
     // If owner_email is set, deliver the claim link via email (avoids browser phishing warnings)
@@ -483,16 +525,95 @@ class AgentService {
   }
 
   static async claimByToken(token) {
-    const agent = await queryOne(
-      `SELECT * FROM agents WHERE claim_token = $1 AND claim_token_expires_at > NOW()`,
-      [String(token || '').trim()]
-    );
-    if (!agent) throw new BadRequestError('Invalid or expired claim token');
-    await query(
-      `UPDATE agents SET owner_verified = TRUE, claim_token = NULL, claim_token_expires_at = NULL WHERE id = $1`,
-      [agent.id]
-    );
-    return agent;
+    const rawToken = String(token || '').trim();
+    const tokenHash = hashToken(rawToken);
+
+    const result = await transaction(async (client) => {
+      const row = await client.query(
+        `SELECT act.id AS claim_row_id,
+                act.agent_id AS claim_agent_id,
+                act.expires_at,
+                act.used_at,
+                act.superseded_at,
+                a.owner_verified
+         FROM agent_claim_tokens act
+         JOIN agents a ON a.id = act.agent_id
+         WHERE act.token_hash = $1
+         LIMIT 1
+         FOR UPDATE OF act, a`,
+        [tokenHash]
+      );
+
+      const record = row.rows[0] || null;
+      const status = classifyClaimTokenRecord(record);
+
+      if (status === 'invalid') {
+        throw new BadRequestError(
+          'This claim link is invalid',
+          'CLAIM_TOKEN_INVALID',
+          'Generate a new claim link and use the most recent email.'
+        );
+      }
+
+      if (status === 'expired') {
+        throw new BadRequestError(
+          'This claim link has expired',
+          'CLAIM_TOKEN_EXPIRED',
+          'Generate a new claim link to continue.'
+        );
+      }
+
+      if (status === 'superseded') {
+        throw new BadRequestError(
+          'This claim link was replaced by a newer one',
+          'CLAIM_TOKEN_SUPERSEDED',
+          'Use the most recent claim email or generate a new claim link.'
+        );
+      }
+
+      if (status === 'already_claimed') {
+        await client.query(
+          `UPDATE agents
+           SET claim_token = NULL,
+               claim_token_expires_at = NULL,
+               updated_at = NOW()
+           WHERE id = $1`,
+          [record.claim_agent_id]
+        );
+        return {
+          agentId: record.claim_agent_id,
+          alreadyClaimed: true
+        };
+      }
+
+      await client.query(
+        `UPDATE agent_claim_tokens
+         SET used_at = NOW()
+         WHERE id = $1
+           AND used_at IS NULL`,
+        [record.claim_row_id]
+      );
+
+      await client.query(
+        `UPDATE agents
+         SET owner_verified = TRUE,
+             claim_token = NULL,
+             claim_token_expires_at = NULL,
+             updated_at = NOW()
+         WHERE id = $1`,
+        [record.claim_agent_id]
+      );
+
+      return {
+        agentId: record.claim_agent_id,
+        alreadyClaimed: false
+      };
+    });
+
+    return {
+      agent: await this.getById(result.agentId),
+      alreadyClaimed: result.alreadyClaimed
+    };
   }
 
   static async generateXVerifyCode(agentId) {

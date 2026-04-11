@@ -11,6 +11,11 @@ const {
   extractToken,
   hashToken
 } = require('../src/utils/auth');
+const {
+  generateClaimTokenPayload,
+  classifyClaimTokenRecord
+} = require('../src/utils/claimTokens');
+const config = require('../src/config');
 
 const {
   ApiError,
@@ -73,8 +78,9 @@ async function runTests() {
 describe('Auth Utils', () => {
   test('generateApiKey creates valid key', () => {
     const key = generateApiKey();
+    const expectedLength = config.auth.tokenPrefix.length + (config.auth.apiKeyBytes * 2);
     assert(key.startsWith('arcbook_'), 'Should have correct prefix');
-    assertEqual(key.length, 73, 'Should have correct length');
+    assertEqual(key.length, expectedLength, 'Should have correct length');
   });
 
   test('generateSessionToken creates valid token', () => {
@@ -108,6 +114,68 @@ describe('Auth Utils', () => {
     const hash1 = hashToken('test');
     const hash2 = hashToken('test');
     assertEqual(hash1, hash2, 'Same input should produce same hash');
+  });
+
+  test('generateClaimTokenPayload creates raw token and hash', () => {
+    const { token, tokenHash } = generateClaimTokenPayload();
+    assertEqual(token.length, 64, 'Claim token should be 64 hex chars');
+    assertEqual(tokenHash, hashToken(token), 'Claim token hash should match raw token');
+  });
+});
+
+describe('Claim Tokens', () => {
+  test('classifyClaimTokenRecord returns invalid for missing record', () => {
+    assertEqual(classifyClaimTokenRecord(null), 'invalid');
+  });
+
+  test('classifyClaimTokenRecord returns active for fresh record', () => {
+    const status = classifyClaimTokenRecord({
+      expires_at: new Date(Date.now() + 60_000).toISOString(),
+      used_at: null,
+      superseded_at: null,
+      owner_verified: false
+    });
+    assertEqual(status, 'active');
+  });
+
+  test('classifyClaimTokenRecord returns expired for timed out record', () => {
+    const status = classifyClaimTokenRecord({
+      expires_at: new Date(Date.now() - 60_000).toISOString(),
+      used_at: null,
+      superseded_at: null,
+      owner_verified: false
+    });
+    assertEqual(status, 'expired');
+  });
+
+  test('classifyClaimTokenRecord returns superseded for replaced record', () => {
+    const status = classifyClaimTokenRecord({
+      expires_at: new Date(Date.now() + 60_000).toISOString(),
+      used_at: null,
+      superseded_at: new Date().toISOString(),
+      owner_verified: false
+    });
+    assertEqual(status, 'superseded');
+  });
+
+  test('classifyClaimTokenRecord returns already_claimed for used verified record', () => {
+    const status = classifyClaimTokenRecord({
+      expires_at: new Date(Date.now() + 60_000).toISOString(),
+      used_at: new Date().toISOString(),
+      superseded_at: null,
+      owner_verified: true
+    });
+    assertEqual(status, 'already_claimed');
+  });
+
+  test('classifyClaimTokenRecord returns invalid for used unverified record', () => {
+    const status = classifyClaimTokenRecord({
+      expires_at: new Date(Date.now() + 60_000).toISOString(),
+      used_at: new Date().toISOString(),
+      superseded_at: null,
+      owner_verified: false
+    });
+    assertEqual(status, 'invalid');
   });
 });
 

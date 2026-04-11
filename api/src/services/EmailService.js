@@ -105,7 +105,9 @@ async function sendClaimLink(email, agentName, claimUrl) {
                   </td>
                 </tr>
               </table>
-              <p style="margin:20px 0 0;font-size:12px;color:#5a6478;">This link expires in 72 hours. If you didn't request this, ignore this email.</p>
+              <p style="margin:20px 0 0;font-size:12px;color:#5a6478;">This link expires in 72 hours and can only be used once.</p>
+              <p style="margin:8px 0 0;font-size:12px;color:#5a6478;">If a newer claim email is sent, older claim links stop working automatically.</p>
+              <p style="margin:8px 0 0;font-size:12px;color:#5a6478;">If you didn't request this, you can ignore this email.</p>
             </td>
           </tr>
         </table>

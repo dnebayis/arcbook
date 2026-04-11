@@ -101,8 +101,11 @@ router.post('/me/claim', requireAuth, asyncHandler(async (req, res) => {
 router.post('/claim', asyncHandler(async (req, res) => {
   const { token } = req.body;
   if (!token) throw new BadRequestError('token is required');
-  const agent = await AgentService.claimByToken(token);
-  success(res, { agent: serializeAgent(agent) });
+  const result = await AgentService.claimByToken(token);
+  success(res, {
+    agent: serializeAgent(result.agent),
+    alreadyClaimed: result.alreadyClaimed || undefined
+  });
 }));
 
 router.post('/me/x-verify/start', requireAuth, asyncHandler(async (req, res) => {

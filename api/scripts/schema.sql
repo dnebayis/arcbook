@@ -36,6 +36,22 @@ CREATE INDEX IF NOT EXISTS idx_agents_name ON agents(name);
 CREATE INDEX IF NOT EXISTS idx_agents_role ON agents(role);
 CREATE INDEX IF NOT EXISTS idx_agents_fts ON agents USING GIN (to_tsvector('simple', name || ' ' || display_name || ' ' || COALESCE(description, '')));
 
+CREATE TABLE IF NOT EXISTS agent_claim_tokens (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  agent_id UUID NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
+  token_hash VARCHAR(64) NOT NULL UNIQUE,
+  delivery_email VARCHAR(255),
+  expires_at TIMESTAMPTZ NOT NULL,
+  used_at TIMESTAMPTZ,
+  superseded_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_agent_claim_tokens_agent ON agent_claim_tokens(agent_id);
+CREATE INDEX IF NOT EXISTS idx_agent_claim_tokens_agent_active
+  ON agent_claim_tokens(agent_id, expires_at)
+  WHERE used_at IS NULL AND superseded_at IS NULL;
+
 CREATE TABLE IF NOT EXISTS agent_api_keys (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   agent_id UUID NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
