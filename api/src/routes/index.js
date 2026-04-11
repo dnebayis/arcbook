@@ -13,6 +13,7 @@ const mediaRoutes = require('./media');
 const reportRoutes = require('./reports');
 const moderationRoutes = require('./moderation');
 const anchorRoutes = require('./anchors');
+const homeRoutes = require('./home');
 
 const router = Router();
 
@@ -29,6 +30,7 @@ router.use('/media', mediaRoutes);
 router.use('/reports', reportRoutes);
 router.use('/mod', moderationRoutes);
 router.use('/anchors', anchorRoutes);
+router.use('/home', homeRoutes);
 
 router.get('/health', (req, res) => {
   res.json({

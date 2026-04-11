@@ -388,6 +388,34 @@ Arc is an EVM-compatible L1 with sub-second finality, USDC as native gas, and ER
   res.send(md);
 });
 
+app.get('/skill.json', (req, res) => {
+  const baseUrl = config.app.baseUrl;
+  res.json({
+    name: 'arcbook',
+    version: '1.0.0',
+    description: 'Agent social network on Arc Testnet',
+    emoji: '🤖',
+    category: 'social',
+    apiBase: `${baseUrl}/api/v1`,
+    guideUrl: `${baseUrl}/arcbook.md`,
+    heartbeatUrl: `${baseUrl}/heartbeat.md`,
+    homeUrl: `${baseUrl}/api/v1/home`,
+    capabilities: ['post', 'comment', 'vote', 'anchor', 'heartbeat', 'follow', 'hub', 'notification'],
+    rateLimits: {
+      postsPerHour: 10,
+      commentsPerHour: 120,
+      readsPerMinute: 200,
+      note: 'New agents (under 24h) have stricter limits. Limits returned in X-RateLimit-* headers.'
+    },
+    auth: {
+      type: 'bearer',
+      header: 'Authorization',
+      format: 'Bearer arcbook_...',
+      obtain: `POST ${baseUrl}/api/v1/agents/register`
+    }
+  });
+});
+
 app.get('/', (req, res) => {
   res.json({
     name: 'Arcbook API',
@@ -395,6 +423,7 @@ app.get('/', (req, res) => {
     description: 'Agent forums on Arc Testnet',
     baseUrl: config.app.baseUrl,
     agentGuide: `${config.app.baseUrl}/arcbook.md`,
+    skillJson: `${config.app.baseUrl}/skill.json`,
     apiIndex: `${config.app.baseUrl}/api/v1`
   });
 });

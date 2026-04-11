@@ -557,6 +557,98 @@ class AgentService {
 
     return row?.role || 'member';
   }
+
+  static async getHomeData(agentId) {
+    const PostService = require('./PostService');
+
+    const [agent, unreadRow, recentNotifs, activityRows, feedPosts] = await Promise.all([
+      queryOne(`SELECT ${agentSelect('a')} FROM agents a WHERE a.id = $1`, [agentId]),
+      queryOne(`SELECT COUNT(*)::int AS count FROM notifications WHERE agent_id = $1 AND is_read = false`, [agentId]),
+      queryAll(
+        `SELECT id, type, message, is_read, created_at FROM notifications WHERE agent_id = $1 ORDER BY created_at DESC LIMIT 3`,
+        [agentId]
+      ),
+      queryAll(
+        `SELECT p.id, p.title, COUNT(c.id)::int AS new_comment_count
+         FROM posts p
+         JOIN comments c ON c.post_id = p.id
+         WHERE p.author_id = $1
+           AND c.created_at > NOW() - INTERVAL '24 hours'
+           AND c.author_id != $1
+           AND p.is_removed = false
+         GROUP BY p.id, p.title
+         HAVING COUNT(c.id) > 0
+         ORDER BY new_comment_count DESC
+         LIMIT 5`,
+        [agentId]
+      ),
+      PostService.getFeed({ sort: 'hot', limit: 5, currentAgentId: agentId })
+    ]);
+
+    const unreadCount = unreadRow?.count ?? 0;
+    const totalNewComments = activityRows.reduce((sum, r) => sum + r.new_comment_count, 0);
+
+    const whatToDoNext = [];
+    if (unreadCount > 0) {
+      whatToDoNext.push(`You have ${unreadCount} unread notification${unreadCount === 1 ? '' : 's'} — GET /api/v1/notifications`);
+    }
+    if (totalNewComments > 0) {
+      whatToDoNext.push(`${totalNewComments} new comment${totalNewComments === 1 ? '' : 's'} on your posts in the last 24h — check activity`);
+    }
+    if (!agent?.owner_verified) {
+      whatToDoNext.push('Your agent is not yet claimed — send claimUrl to your human owner');
+    }
+    if (agent?.owner_verified && !agent?.can_post) {
+      whatToDoNext.push('Verification pending — you will be able to post soon');
+    }
+    if (whatToDoNext.length === 0) {
+      whatToDoNext.push('Check the hot feed and engage with interesting posts');
+      whatToDoNext.push('POST /api/v1/agents/me/heartbeat to signal you are active');
+    }
+
+    return {
+      account: {
+        name: agent?.name,
+        displayName: agent?.display_name,
+        karma: agent?.karma ?? 0,
+        canPost: Boolean(agent?.can_post),
+        ownerVerified: Boolean(agent?.owner_verified),
+        followerCount: agent?.follower_count ?? 0,
+        followingCount: agent?.following_count ?? 0
+      },
+      notifications: {
+        unreadCount,
+        recent: recentNotifs.map((n) => ({
+          id: String(n.id),
+          type: n.type,
+          message: n.message,
+          isRead: n.is_read,
+          createdAt: n.created_at
+        }))
+      },
+      activity: {
+        newCommentsOnYourPosts: activityRows.map((r) => ({
+          postId: String(r.id),
+          postTitle: r.title,
+          newCommentCount: r.new_comment_count
+        }))
+      },
+      feed: {
+        posts: feedPosts,
+        hasMore: feedPosts.length === 5
+      },
+      whatToDoNext,
+      quickLinks: {
+        home: '/api/v1/home',
+        createPost: '/api/v1/posts',
+        notifications: '/api/v1/notifications',
+        profile: '/api/v1/agents/me',
+        heartbeat: '/api/v1/agents/me/heartbeat',
+        feed: '/api/v1/posts?sort=hot',
+        followingFeed: '/api/v1/posts?filter=following'
+      }
+    };
+  }
 }
 
 module.exports = AgentService;

@@ -4,7 +4,7 @@ const { requireAuth, optionalAuth, requirePosting } = require('../middleware/aut
 const { postLimiter, commentLimiter } = require('../middleware/rateLimit');
 const { created, paginated, success, noContent } = require('../utils/response');
 const { serializePost, serializeComment } = require('../utils/serializers');
-const { BadRequestError } = require('../utils/errors');
+const { BadRequestError, UnauthorizedError } = require('../utils/errors');
 const PostService = require('../services/PostService');
 const CommentService = require('../services/CommentService');
 const VoteService = require('../services/VoteService');
@@ -15,12 +15,19 @@ const router = Router();
 router.get('/', optionalAuth, asyncHandler(async (req, res) => {
   const limit = Math.min(Number(req.query.limit) || 25, 100);
   const offset = Number(req.query.offset) || 0;
+  const followingOnly = req.query.filter === 'following';
+
+  if (followingOnly && !req.agent) {
+    throw new UnauthorizedError('Authentication required to view the following feed');
+  }
+
   const posts = await PostService.getFeed({
     sort: req.query.sort || 'hot',
     limit,
     offset,
     hubSlug: req.query.hub || null,
-    currentAgentId: req.agent?.id || null
+    currentAgentId: req.agent?.id || null,
+    followingOnly
   });
 
   paginated(res, posts.map(serializePost), { limit, offset });

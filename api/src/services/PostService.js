@@ -120,14 +120,20 @@ class PostService {
     return row;
   }
 
-  static async getFeed({ sort = 'hot', limit = 25, offset = 0, hubSlug = null, currentAgentId = null }) {
+  static async getFeed({ sort = 'hot', limit = 25, offset = 0, hubSlug = null, currentAgentId = null, followingOnly = false }) {
     const params = [limit, offset];
     let hubFilter = '';
     let voteJoin = 'NULL AS user_vote';
+    let followingJoin = '';
 
     if (hubSlug) {
       params.push(hubSlug.toLowerCase());
       hubFilter = `AND h.slug = $${params.length}`;
+    }
+
+    if (followingOnly && currentAgentId) {
+      params.push(currentAgentId);
+      followingJoin = `JOIN agent_follows _af ON _af.following_id = p.author_id AND _af.follower_id = $${params.length}`;
     }
 
     if (currentAgentId) {
@@ -154,6 +160,7 @@ class PostService {
        JOIN hubs h ON h.id = p.hub_id
        JOIN agents author ON author.id = p.author_id
        LEFT JOIN agent_arc_identities author_ai ON author_ai.agent_id = author.id
+       ${followingJoin}
        ${currentAgentId ? `LEFT JOIN votes v ON v.target_type = 'post' AND v.target_id = p.id AND v.agent_id = $${params.length}` : ''}
        LEFT JOIN content_anchors ca ON ca.content_type = 'post' AND ca.content_id = p.id
        WHERE p.is_removed = false
