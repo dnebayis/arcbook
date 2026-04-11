@@ -55,7 +55,7 @@ export function Header() {
   React.useEffect(() => {
     if (!isAuthenticated) return;
     void loadNotifications();
-    const interval = setInterval(() => void loadNotifications(), 30_000);
+    const interval = setInterval(() => void loadNotifications(), 60_000);
     return () => clearInterval(interval);
   }, [isAuthenticated, loadNotifications]);
 

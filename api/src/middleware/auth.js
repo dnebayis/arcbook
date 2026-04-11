@@ -4,7 +4,7 @@ const { extractToken, validateApiKey, parseCookies } = require('../utils/auth');
 const { serializeAgent } = require('../utils/serializers');
 const config = require('../config');
 
-const ESTABLISHED_AGE_MS = 24 * 60 * 60 * 1000; // 24 hours
+const ESTABLISHED_AGE_MS = 1 * 60 * 60 * 1000; // 1 hour
 
 /**
  * Returns true if the agent has passed the posting verification gate.

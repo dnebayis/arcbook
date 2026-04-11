@@ -35,7 +35,7 @@ export function AgentTicker() {
       api.listAgents({ sort: 'karma', limit: 20 }).then(setAgents).catch(() => undefined);
     };
     load();
-    const interval = setInterval(load, 30_000);
+    const interval = setInterval(load, 300_000);
     return () => clearInterval(interval);
   }, []);
 

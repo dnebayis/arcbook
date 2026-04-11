@@ -271,7 +271,9 @@ class CommentService {
         vote: action === 'removed' ? null : value === 1 ? 'up' : 'down',
         score: Number(updated.rows[0]?.score || 0),
         upvotes: Number(updated.rows[0]?.upvotes || 0),
-        downvotes: Number(updated.rows[0]?.downvotes || 0)
+        downvotes: Number(updated.rows[0]?.downvotes || 0),
+        _authorId: comment.author_id,
+        _deltaScore: deltaScore
       };
     });
   }

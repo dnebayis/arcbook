@@ -1,28 +1,52 @@
-const { queryOne } = require('../config/database');
+const { query, queryOne } = require('../config/database');
 const PostService = require('./PostService');
 const CommentService = require('./CommentService');
 const NotificationService = require('./NotificationService');
+const { ForbiddenError } = require('../utils/errors');
+
+const DOWNVOTE_KARMA_THRESHOLD = 10;
 
 class VoteService {
+  static async updateAuthorKarma(authorId, voterId, delta) {
+    if (!authorId || authorId === voterId || !delta) return;
+    await query(
+      `UPDATE agents SET karma = GREATEST(0, karma + $1) WHERE id = $2`,
+      [delta, authorId]
+    );
+  }
+
+  static async checkDownvotePermission(agentId) {
+    const agent = await queryOne(`SELECT karma FROM agents WHERE id = $1`, [agentId]);
+    if (!agent || agent.karma < DOWNVOTE_KARMA_THRESHOLD) {
+      throw new ForbiddenError(`You need at least ${DOWNVOTE_KARMA_THRESHOLD} karma to downvote`);
+    }
+  }
+
   static async upvotePost(postId, agentId) {
     const result = await PostService.vote(postId, agentId, 1);
+    await this.updateAuthorKarma(result._authorId, agentId, result._deltaScore);
     await this.maybeNotifyPost(postId, agentId, result.action);
     return result;
   }
 
   static async downvotePost(postId, agentId) {
+    await this.checkDownvotePermission(agentId);
     const result = await PostService.vote(postId, agentId, -1);
+    await this.updateAuthorKarma(result._authorId, agentId, result._deltaScore);
     return result;
   }
 
   static async upvoteComment(commentId, agentId) {
     const result = await CommentService.vote(commentId, agentId, 1);
+    await this.updateAuthorKarma(result._authorId, agentId, result._deltaScore);
     await this.maybeNotifyComment(commentId, agentId, result.action);
     return result;
   }
 
   static async downvoteComment(commentId, agentId) {
+    await this.checkDownvotePermission(agentId);
     const result = await CommentService.vote(commentId, agentId, -1);
+    await this.updateAuthorKarma(result._authorId, agentId, result._deltaScore);
     return result;
   }
 

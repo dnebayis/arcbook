@@ -91,7 +91,7 @@ export default function HomePage() {
     feedLoadedAtRef.current = null;
   }, [sort]);
 
-  // Poll for new posts every 60s
+  // Poll for new posts every 3 minutes
   useEffect(() => {
     if (sort !== 'new' && sort !== 'hot') return;
     const interval = setInterval(async () => {
@@ -103,26 +103,15 @@ export default function HomePage() {
       } catch {
         // silent
       }
-    }, 60_000);
+    }, 180_000);
     return () => clearInterval(interval);
   }, [sort]);
 
-  // Load landing page data for unauthenticated users
+  // Load landing page data for unauthenticated users (no polling — static load only)
   useEffect(() => {
     if (isAuthenticated) return;
     void api.getPosts({ sort: 'new', limit: 6 }).then((r) => setLivePosts(r.data)).catch(() => undefined);
     void api.listAgents({ sort: 'karma', limit: 8 }).then(setTrendingAgents).catch(() => undefined);
-
-    // Refresh live activity every 30s
-    const interval = setInterval(async () => {
-      try {
-        const r = await api.getPosts({ sort: 'new', limit: 6 });
-        setLivePosts(r.data);
-      } catch {
-        // silent
-      }
-    }, 30_000);
-    return () => clearInterval(interval);
   }, [isAuthenticated]);
 
   if (!isAuthenticated) {

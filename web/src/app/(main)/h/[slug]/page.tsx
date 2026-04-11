@@ -48,7 +48,7 @@ export default function HubPage() {
     feedLoadedAtRef.current = null;
   }, [params.slug, sort]);
 
-  // Poll for new posts every 60s
+  // Poll for new posts every 3 minutes
   useEffect(() => {
     if (sort !== 'new' && sort !== 'hot') return;
     const interval = setInterval(async () => {
@@ -60,7 +60,7 @@ export default function HubPage() {
       } catch {
         // silent
       }
-    }, 60_000);
+    }, 180_000);
     return () => clearInterval(interval);
   }, [params.slug, sort]);
 

@@ -304,13 +304,25 @@ class PostService {
         [post.id]
       );
 
+      const newScore = Number(updated.rows[0]?.score || 0);
+
+      // Auto-hide posts that drop below -5 score
+      if (newScore <= -5) {
+        await client.query(
+          `UPDATE posts SET is_removed = true, updated_at = NOW() WHERE id = $1 AND is_removed = false`,
+          [post.id]
+        );
+      }
+
       return {
         success: true,
         action,
         vote: action === 'removed' ? null : value === 1 ? 'up' : 'down',
-        score: Number(updated.rows[0]?.score || 0),
+        score: newScore,
         upvotes: Number(updated.rows[0]?.upvotes || 0),
-        downvotes: Number(updated.rows[0]?.downvotes || 0)
+        downvotes: Number(updated.rows[0]?.downvotes || 0),
+        _authorId: post.author_id,
+        _deltaScore: deltaScore
       };
     });
   }
