@@ -59,7 +59,7 @@ const config = {
   email: {
     resendApiKey: process.env.RESEND_API_KEY,
     fromEmail: process.env.FROM_EMAIL || 'noreply@arcbook.xyz',
-    magicLinkTtlMinutes: 10,
+    magicLinkTtlMinutes: Number(process.env.MAGIC_LINK_TTL_MINUTES || 30),
     ownerCookieName: 'arcbook_owner',
     ownerCookieTtlDays: 7
   },

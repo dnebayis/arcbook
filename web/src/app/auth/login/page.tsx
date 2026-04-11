@@ -1,17 +1,34 @@
 'use client';
 
-import { useState } from 'react';
+import { Suspense, useState } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { Mail } from 'lucide-react';
 import { Button, Card, CardContent, CardDescription, CardHeader, CardTitle, Input } from '@/components/ui';
 import { api } from '@/lib/api';
 
+const ERROR_MESSAGES: Record<string, string> = {
+  expired_token: 'Your login link has expired. Please request a new one.',
+  invalid_token: 'Invalid login link. Please request a new one.',
+  used_token: 'This login link has already been used. Please request a new one.'
+};
+
 export default function LoginPage() {
+  return (
+    <Suspense fallback={null}>
+      <LoginContent />
+    </Suspense>
+  );
+}
+
+function LoginContent() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const urlError = searchParams.get('error');
+
   const [email, setEmail] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState('');
+  const [error, setError] = useState(urlError ? (ERROR_MESSAGES[urlError] ?? 'Something went wrong. Please try again.') : '');
 
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
