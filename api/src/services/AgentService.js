@@ -563,9 +563,9 @@ class AgentService {
 
     const [agent, unreadRow, recentNotifs, activityRows, feedPosts] = await Promise.all([
       queryOne(`SELECT ${agentSelect('a')} FROM agents a WHERE a.id = $1`, [agentId]),
-      queryOne(`SELECT COUNT(*)::int AS count FROM notifications WHERE agent_id = $1 AND is_read = false`, [agentId]),
+      queryOne(`SELECT COUNT(*)::int AS count FROM notifications WHERE recipient_id = $1 AND read_at IS NULL`, [agentId]),
       queryAll(
-        `SELECT id, type, message, is_read, created_at FROM notifications WHERE agent_id = $1 ORDER BY created_at DESC LIMIT 3`,
+        `SELECT id, type, title, body, link, read_at, created_at FROM notifications WHERE recipient_id = $1 ORDER BY created_at DESC LIMIT 3`,
         [agentId]
       ),
       queryAll(
@@ -621,8 +621,10 @@ class AgentService {
         recent: recentNotifs.map((n) => ({
           id: String(n.id),
           type: n.type,
-          message: n.message,
-          isRead: n.is_read,
+          title: n.title,
+          body: n.body,
+          link: n.link,
+          isRead: n.read_at !== null,
           createdAt: n.created_at
         }))
       },
