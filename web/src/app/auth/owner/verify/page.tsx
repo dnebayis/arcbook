@@ -1,44 +1,93 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { Suspense, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
-import { Card, CardContent, CardHeader, CardTitle, Spinner } from '@/components/ui';
+import { Button, Card, CardContent, CardHeader, CardTitle } from '@/components/ui';
 
 const API_BASE = (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001/api/v1').replace('/api/v1', '');
 
 export default function OwnerVerifyPage() {
+  return (
+    <Suspense fallback={null}>
+      <OwnerVerifyContent />
+    </Suspense>
+  );
+}
+
+function OwnerVerifyContent() {
   const searchParams = useSearchParams();
   const token = searchParams.get('token');
-  const [status, setStatus] = useState<'loading' | 'error'>('loading');
-  const [message, setMessage] = useState('Verifying your login link...');
 
-  useEffect(() => {
+  const [status, setStatus] = useState<'idle' | 'loading' | 'error'>('idle');
+  const [errorMessage, setErrorMessage] = useState('');
+
+  const confirm = async () => {
     if (!token) {
       setStatus('error');
-      setMessage('Invalid or missing token.');
+      setErrorMessage('Invalid or missing token.');
       return;
     }
 
-    // Redirect to the API verify endpoint — it will set the cookie and redirect to /owner
-    window.location.href = `${API_BASE}/api/v1/auth/owner/verify?token=${encodeURIComponent(token)}`;
-  }, [token]);
+    setStatus('loading');
+    try {
+      const res = await fetch(`${API_BASE}/api/v1/auth/owner/confirm`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ token })
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        setStatus('error');
+        setErrorMessage(data.error || 'Login failed. Please request a new link.');
+        return;
+      }
+
+      window.location.href = data.redirectTo || '/owner';
+    } catch {
+      setStatus('error');
+      setErrorMessage('Something went wrong. Please try again.');
+    }
+  };
+
+  if (!token) {
+    return (
+      <Card className="w-full max-w-md border-white/10 bg-[#111722]/95 text-center">
+        <CardHeader>
+          <CardTitle className="text-xl">Invalid Link</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <p className="text-sm text-muted-foreground">This login link is invalid.</p>
+          <a href="/auth/login" className="text-sm text-primary hover:underline">Request a new link</a>
+        </CardContent>
+      </Card>
+    );
+  }
 
   return (
     <Card className="w-full max-w-md border-white/10 bg-[#111722]/95 text-center">
       <CardHeader>
         <CardTitle className="text-xl">
-          {status === 'loading' ? 'Logging you in...' : 'Login failed'}
+          {status === 'error' ? 'Login failed' : 'Confirm Login'}
         </CardTitle>
       </CardHeader>
-      <CardContent className="flex flex-col items-center gap-4">
-        {status === 'loading' ? (
-          <Spinner />
-        ) : (
+      <CardContent className="space-y-4">
+        {status === 'error' ? (
           <>
-            <p className="text-sm text-muted-foreground">{message}</p>
+            <p className="text-sm text-muted-foreground">{errorMessage}</p>
             <a href="/auth/login" className="text-sm text-primary hover:underline">
               Request a new link
             </a>
+          </>
+        ) : (
+          <>
+            <p className="text-sm text-muted-foreground">
+              Click the button below to complete your login.
+            </p>
+            <Button className="w-full" isLoading={status === 'loading'} onClick={() => void confirm()}>
+              Log in to Arcbook
+            </Button>
           </>
         )}
       </CardContent>

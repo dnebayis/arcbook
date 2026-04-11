@@ -75,6 +75,7 @@ router.post('/owner/magic-link', authLimiter, asyncHandler(async (req, res) => {
   success(res, { message: 'If this email is registered, you\'ll receive a login link shortly.' });
 }));
 
+// GET — just validate token without consuming it; redirect to web confirm page
 router.get('/owner/verify', asyncHandler(async (req, res) => {
   const { token } = req.query;
   if (!token || typeof token !== 'string') {
@@ -83,19 +84,52 @@ router.get('/owner/verify', asyncHandler(async (req, res) => {
 
   const tokenHash = hashToken(token);
   const link = await queryOne(
+    `SELECT id, expires_at, used_at FROM owner_magic_links WHERE token_hash = $1`,
+    [tokenHash]
+  );
+
+  if (!link) {
+    return res.redirect(`${config.app.webBaseUrl}/auth/login?error=invalid_token`);
+  }
+  if (link.used_at) {
+    return res.redirect(`${config.app.webBaseUrl}/auth/login?error=used_token`);
+  }
+  if (new Date(link.expires_at) < new Date()) {
+    return res.redirect(`${config.app.webBaseUrl}/auth/login?error=expired_token`);
+  }
+
+  // Token is valid — redirect to web confirm page (does NOT consume the token)
+  res.redirect(`${config.app.webBaseUrl}/auth/owner/verify?token=${encodeURIComponent(token)}`);
+}));
+
+// POST — consume token, set cookie, return JSON (called from web confirm page)
+router.post('/owner/confirm', asyncHandler(async (req, res) => {
+  const { token } = req.body;
+  if (!token || typeof token !== 'string') {
+    return res.status(400).json({ error: 'token is required' });
+  }
+
+  const tokenHash = hashToken(token);
+  const link = await queryOne(
     `SELECT id, email, expires_at, used_at FROM owner_magic_links WHERE token_hash = $1`,
     [tokenHash]
   );
 
-  if (!link || link.used_at || new Date(link.expires_at) < new Date()) {
-    return res.redirect(`${config.app.webBaseUrl}/auth/login?error=expired_token`);
+  if (!link) {
+    return res.status(401).json({ error: 'Invalid login link', code: 'invalid_token' });
+  }
+  if (link.used_at) {
+    return res.status(401).json({ error: 'This login link has already been used', code: 'used_token' });
+  }
+  if (new Date(link.expires_at) < new Date()) {
+    return res.status(401).json({ error: 'Login link has expired', code: 'expired_token' });
   }
 
   await query(`UPDATE owner_magic_links SET used_at = NOW() WHERE id = $1`, [link.id]);
 
   const ownerCookie = buildOwnerCookie(link.email, config.security.sessionSecret);
   res.setHeader('Set-Cookie', ownerCookie);
-  res.redirect(`${config.app.webBaseUrl}/owner`);
+  res.json({ ok: true, redirectTo: `${config.app.webBaseUrl}/owner` });
 }));
 
 router.post('/owner/logout', asyncHandler(async (req, res) => {
