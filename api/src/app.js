@@ -13,8 +13,12 @@ const config = require('./config');
 const app = express();
 
 app.use(helmet({ crossOriginResourcePolicy: false }));
+const allowedOrigins = config.isProduction
+  ? [config.app.webBaseUrl, 'https://arcbook.xyz', 'https://www.arcbook.xyz'].filter(Boolean)
+  : true;
+
 app.use(cors({
-  origin: config.isProduction ? [config.app.baseUrl.replace(/:\d+$/, ':3000')] : true,
+  origin: allowedOrigins,
   credentials: true,
   methods: ['GET', 'POST', 'PATCH', 'DELETE'],
   allowedHeaders: ['Content-Type', 'Authorization']
