@@ -3,6 +3,7 @@
 import { Suspense, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { Button, Card, CardContent, CardHeader, CardTitle } from '@/components/ui';
+import { OWNER_AUTH_COOKIE, setClientIndicatorCookie } from '@/lib/session';
 
 const API_BASE = (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001/api/v1').replace('/api/v1', '');
 
@@ -44,6 +45,7 @@ function OwnerVerifyContent() {
         return;
       }
 
+      setClientIndicatorCookie(OWNER_AUTH_COOKIE);
       window.location.href = data.redirectTo || '/owner';
     } catch {
       setStatus('error');

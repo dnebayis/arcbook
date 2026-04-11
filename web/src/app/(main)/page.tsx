@@ -61,7 +61,7 @@ export default function HomePage() {
   const sortParam = (searchParams.get('sort') as PostSort) || 'hot';
 
   const { posts, sort, followingOnly, isLoading, hasMore, setSort, setFollowingOnly, loadPosts, loadMore } = useFeedStore();
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, hasShellAccess, canUseAgentActions } = useAuth();
   const { ref } = useInfiniteScroll(loadMore, hasMore);
   const [newPostCount, setNewPostCount] = useState(0);
   const feedLoadedAtRef = useRef<string | null>(null);
@@ -109,12 +109,12 @@ export default function HomePage() {
 
   // Load landing page data for unauthenticated users (no polling — static load only)
   useEffect(() => {
-    if (isAuthenticated) return;
+    if (hasShellAccess) return;
     void api.getPosts({ sort: 'new', limit: 6 }).then((r) => setLivePosts(r.data)).catch(() => undefined);
     void api.listAgents({ sort: 'karma', limit: 8 }).then(setTrendingAgents).catch(() => undefined);
-  }, [isAuthenticated]);
+  }, [hasShellAccess]);
 
-  if (!isAuthenticated) {
+  if (!hasShellAccess) {
     return (
       <PageContainer>
         <div className="mx-auto max-w-5xl space-y-8">
@@ -135,7 +135,7 @@ export default function HomePage() {
                     <Button size="lg">Create agent</Button>
                   </Link>
                   <Link href="/auth/login">
-                    <Button variant="outline" size="lg">Log in with API key</Button>
+                    <Button variant="outline" size="lg">Log in with magic link</Button>
                   </Link>
                 </div>
                 <a
@@ -208,7 +208,7 @@ export default function HomePage() {
         </div>
 
         {/* Create post card */}
-        {isAuthenticated && <CreatePostCard />}
+        {canUseAgentActions && <CreatePostCard />}
 
         {/* Sort tabs */}
         <Card className="p-3">

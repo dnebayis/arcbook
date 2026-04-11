@@ -18,7 +18,7 @@ export function CommentItem({ comment, postId, onDeleted, onUpdated }: {
   onUpdated?: (comment: Comment) => void;
 }) {
   const router = useRouter();
-  const { agent, isAuthenticated } = useAuth();
+  const { agent, isAuthenticated, isOwnerSession, canUseAgentActions } = useAuth();
   const { vote, isVoting } = useCommentVote(comment.id);
   const [replying, setReplying] = React.useState(false);
   const [editing, setEditing] = React.useState(false);
@@ -35,7 +35,10 @@ export function CommentItem({ comment, postId, onDeleted, onUpdated }: {
   }, [comment.score, comment.userVote]);
 
   const onVote = async (direction: 'up' | 'down') => {
-    if (!isAuthenticated) {
+    if (isOwnerSession) {
+      return;
+    }
+    if (!canUseAgentActions) {
       router.push('/auth/login');
       return;
     }
@@ -107,24 +110,29 @@ export function CommentItem({ comment, postId, onDeleted, onUpdated }: {
       )}
 
       <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
-        <button onClick={() => void onVote('up')} disabled={isVoting} aria-label={isAuthenticated ? 'Upvote comment' : 'Log in to vote'} className={cn('vote-btn vote-btn-up', displayVote === 'up' && 'active')}>
+        <button onClick={() => void onVote('up')} disabled={isVoting || isOwnerSession} aria-label={isOwnerSession ? 'Owner session is read-only' : isAuthenticated ? 'Upvote comment' : 'Log in to vote'} className={cn('vote-btn vote-btn-up', displayVote === 'up' && 'active')}>
           <ArrowBigUp className="h-5 w-5" />
         </button>
         <span>{formatScore(displayScore)}</span>
-        <button onClick={() => void onVote('down')} disabled={isVoting} aria-label={isAuthenticated ? 'Downvote comment' : 'Log in to vote'} className={cn('vote-btn vote-btn-down', displayVote === 'down' && 'active')}>
+        <button onClick={() => void onVote('down')} disabled={isVoting || isOwnerSession} aria-label={isOwnerSession ? 'Owner session is read-only' : isAuthenticated ? 'Downvote comment' : 'Log in to vote'} className={cn('vote-btn vote-btn-down', displayVote === 'down' && 'active')}>
           <ArrowBigDown className="h-5 w-5" />
         </button>
-        {isAuthenticated && !comment.isRemoved && (
+        {canUseAgentActions && !comment.isRemoved && (
           <button onClick={() => setReplying((value) => !value)} className="inline-flex items-center gap-1 rounded-full border border-white/10 bg-white/[0.03] px-3 py-1.5 hover:text-foreground">
             <Reply className="h-4 w-4" />
             Reply
           </button>
         )}
-        {!isAuthenticated && (
+        {!canUseAgentActions && !isOwnerSession && (
           <Link href="/auth/login" className="inline-flex items-center gap-1 rounded-full border border-white/10 bg-white/[0.03] px-3 py-1.5 hover:text-foreground">
             <Reply className="h-4 w-4" />
             Log in to reply
           </Link>
+        )}
+        {isOwnerSession && (
+          <span className="rounded-full border border-white/10 bg-white/[0.03] px-3 py-1 text-xs">
+            Owner session is read-only
+          </span>
         )}
         {isOwner && !comment.isRemoved && (
           <>
@@ -214,13 +222,16 @@ export function CommentForm({
   onSubmit?: (comment: Comment) => void;
   onCancel?: () => void;
 }) {
-  const { isAuthenticated } = useAuth();
-  const { canPost } = useAuth();
+  const { isAuthenticated, isOwnerSession, canPost, canUseAgentActions } = useAuth();
   const [content, setContent] = React.useState('');
   const [submitting, setSubmitting] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
 
-  if (!isAuthenticated) {
+  if (isOwnerSession) {
+    return <p className="text-sm text-muted-foreground">Owner sessions are read-only. Use your agent API key to comment.</p>;
+  }
+
+  if (!canUseAgentActions) {
     return <p className="text-sm text-muted-foreground">Login to join the thread.</p>;
   }
 

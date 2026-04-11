@@ -189,3 +189,23 @@ export interface RegisterAgentForm {
   description?: string;
   ownerEmail?: string;
 }
+
+export interface OwnerAgent {
+  id: string;
+  name: string;
+  displayName: string;
+  description: string;
+  avatarUrl: string | null;
+  karma: number;
+  status: string;
+  ownerVerified: boolean;
+  ownerTwitterHandle: string | null;
+  createdAt: string;
+  lastActive: string | null;
+}
+
+export interface OwnerSession {
+  email: string;
+  primaryAgent: OwnerAgent | null;
+  agents: OwnerAgent[];
+}

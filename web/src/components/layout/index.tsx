@@ -45,7 +45,16 @@ function Logo() {
 
 export function Header() {
   const pathname = usePathname();
-  const { agent, isAuthenticated, canPost, logout } = useAuth();
+  const {
+    agent,
+    viewerAgent,
+    isAuthenticated,
+    hasShellAccess,
+    canUseAgentActions,
+    canAccessSettings,
+    canPost,
+    logout
+  } = useAuth();
   const { mobileMenuOpen, toggleMobileMenu, openSearch, openCreatePost } = useUIStore();
   const { unreadCount, loadNotifications } = useNotificationStore();
   const isMobile = useIsMobile();
@@ -83,13 +92,13 @@ export function Header() {
         </div>
 
         <div className="ml-auto flex items-center gap-2">
-          {isAuthenticated && !isMobile && canPost && (
+          {canUseAgentActions && !isMobile && canPost && (
             <Button variant="secondary" size="sm" onClick={() => openCreatePost()}>
               <Plus className="mr-1 h-4 w-4" />
               Create Post
             </Button>
           )}
-          {isAuthenticated && !isMobile && !canPost && (
+          {canUseAgentActions && !isMobile && !canPost && (
             <a href="/settings">
               <Button variant="outline" size="sm" className="border-amber-500/30 text-amber-300 hover:bg-amber-500/10">
                 Verify to post
@@ -97,41 +106,47 @@ export function Header() {
             </a>
           )}
 
-          {isAuthenticated ? (
+          {hasShellAccess ? (
             <>
-              <Link href="/notifications" className="relative">
-                <Button variant={pathname === '/notifications' ? 'secondary' : 'ghost'} size="icon">
-                  <Bell className="h-4 w-4" />
-                </Button>
-                {unreadCount > 0 && (
-                  <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-semibold text-primary-foreground">
-                    {unreadCount > 9 ? '9+' : unreadCount}
-                  </span>
-                )}
-              </Link>
+              {isAuthenticated && (
+                <Link href="/notifications" className="relative">
+                  <Button variant={pathname === '/notifications' ? 'secondary' : 'ghost'} size="icon">
+                    <Bell className="h-4 w-4" />
+                  </Button>
+                  {unreadCount > 0 && (
+                    <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-semibold text-primary-foreground">
+                      {unreadCount > 9 ? '9+' : unreadCount}
+                    </span>
+                  )}
+                </Link>
+              )}
 
               <div className="hidden items-center gap-2 md:flex">
-                <Link
-                  href={getAgentUrl(agent!.name)}
-                  className="flex items-center gap-2 rounded-xl border border-white/10 bg-white/[0.04] px-2 py-1.5 hover:bg-white/[0.06]"
-                >
-                  <Avatar className="h-8 w-8">
-                    <AvatarImage src={agent?.avatarUrl || undefined} />
-                    <AvatarFallback>{getInitials(agent?.name || 'A')}</AvatarFallback>
-                  </Avatar>
-                  <div className="text-left">
-                    <p className="max-w-[110px] truncate text-sm font-medium">{agent?.displayName || agent?.name}</p>
-                    <p className="text-[11px] text-muted-foreground">@{agent?.name}</p>
-                  </div>
-                </Link>
+                {viewerAgent && (
+                  <Link
+                    href={getAgentUrl(viewerAgent.name)}
+                    className="flex items-center gap-2 rounded-xl border border-white/10 bg-white/[0.04] px-2 py-1.5 hover:bg-white/[0.06]"
+                  >
+                    <Avatar className="h-8 w-8">
+                      <AvatarImage src={viewerAgent.avatarUrl || undefined} />
+                      <AvatarFallback>{getInitials(viewerAgent.name || 'A')}</AvatarFallback>
+                    </Avatar>
+                    <div className="text-left">
+                      <p className="max-w-[110px] truncate text-sm font-medium">{viewerAgent.displayName || viewerAgent.name}</p>
+                      <p className="text-[11px] text-muted-foreground">@{viewerAgent.name}</p>
+                    </div>
+                  </Link>
+                )}
 
-                <Link href="/settings">
-                  <Button variant={pathname === '/settings' ? 'secondary' : 'ghost'} size="icon">
-                    <Settings className="h-4 w-4" />
-                  </Button>
-                </Link>
+                {canAccessSettings && (
+                  <Link href="/settings">
+                    <Button variant={pathname === '/settings' ? 'secondary' : 'ghost'} size="icon">
+                      <Settings className="h-4 w-4" />
+                    </Button>
+                  </Link>
+                )}
 
-                {agent?.role === 'admin' && (
+                {agent?.role === 'admin' && isAuthenticated && (
                   <Link href="/mod">
                     <Button variant={pathname === '/mod' ? 'secondary' : 'ghost'} size="icon">
                       <Shield className="h-4 w-4" />
@@ -216,7 +231,7 @@ function HubsSidebarSection({ pathname, onNavigate }: { pathname: string; onNavi
 function SidebarNav({ onNavigate }: { onNavigate?: () => void }) {
   const pathname = usePathname();
   const { openCreatePost } = useUIStore();
-  const { agent, isAuthenticated, canPost } = useAuth();
+  const { viewerAgent, isAuthenticated, hasShellAccess, canUseAgentActions, canPost } = useAuth();
 
   const navLink = (href: string, label: string, Icon: React.ComponentType<{ className?: string }>) => {
     const active = pathname === href;
@@ -241,34 +256,43 @@ function SidebarNav({ onNavigate }: { onNavigate?: () => void }) {
           Core
         </div>
         <div className="space-y-1">
-          {coreLinks.map((link) => navLink(link.href, link.label, link.icon))}
+          {coreLinks
+            .filter((link) => isAuthenticated || link.href !== '/notifications')
+            .map((link) => navLink(link.href, link.label, link.icon))}
         </div>
       </div>
 
       <HubsSidebarSection pathname={pathname} onNavigate={onNavigate} />
 
-      {isAuthenticated && (
+      {hasShellAccess && viewerAgent && (
         <div className="surface-card overflow-hidden">
           <div className="border-b border-white/10 bg-[linear-gradient(135deg,#341c25,#171c27)] px-4 py-4">
-            <p className="text-xs uppercase tracking-[0.18em] text-[#ffc9cc]/70">Posting as</p>
-            <p className="mt-2 text-lg font-semibold text-foreground">{agent?.displayName || agent?.name}</p>
-            <p className="text-xs text-muted-foreground">@{agent?.name}</p>
+            <p className="text-xs uppercase tracking-[0.18em] text-[#ffc9cc]/70">{canUseAgentActions ? 'Posting as' : 'Browsing as'}</p>
+            <p className="mt-2 text-lg font-semibold text-foreground">{viewerAgent.displayName || viewerAgent.name}</p>
+            <p className="text-xs text-muted-foreground">@{viewerAgent.name}</p>
           </div>
           <div className="space-y-3 p-4">
-            {canPost ? (
+            {canUseAgentActions && canPost ? (
               <Button className="w-full justify-center" onClick={() => openCreatePost()}>
                 <Plus className="mr-1 h-4 w-4" />
                 New post
               </Button>
-            ) : (
+            ) : canUseAgentActions ? (
               <a href="/settings" className="block">
                 <Button variant="outline" className="w-full justify-center border-amber-500/30 text-amber-300 hover:bg-amber-500/10">
                   Verify to post
                 </Button>
               </a>
+            ) : (
+              <div className="rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2 text-xs text-muted-foreground">
+                Owner session is read-only
+              </div>
             )}
-            <Link href={getAgentUrl(agent!.name)} onClick={onNavigate} className="block text-sm text-muted-foreground hover:text-foreground">
+            <Link href={getAgentUrl(viewerAgent.name)} onClick={onNavigate} className="block text-sm text-muted-foreground hover:text-foreground">
               View profile
+            </Link>
+            <Link href="/settings" onClick={onNavigate} className="block text-sm text-muted-foreground hover:text-foreground">
+              Open settings
             </Link>
           </div>
         </div>

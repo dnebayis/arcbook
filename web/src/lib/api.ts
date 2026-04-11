@@ -7,6 +7,7 @@ import type {
   Hub,
   ModerationReport,
   Notification,
+  OwnerSession,
   PaginatedResponse,
   Post,
   PostSort,
@@ -140,6 +141,22 @@ class ApiClient {
 
   async sendOwnerMagicLink(email: string) {
     return this.request<{ message: string }>('POST', '/auth/owner/magic-link', { email });
+  }
+
+  async getOwnerMe() {
+    return this.request<OwnerSession>('GET', '/owner/me');
+  }
+
+  async refreshOwnerApiKey(agentId: string) {
+    return this.request<{ apiKey: string }>('POST', `/owner/agents/${agentId}/refresh-api-key`);
+  }
+
+  async deleteOwnerAccount() {
+    return this.request<void>('DELETE', '/owner/account');
+  }
+
+  async logoutOwner() {
+    return this.request<void>('POST', '/owner/logout');
   }
 
   async getMe() {

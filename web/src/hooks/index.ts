@@ -2,11 +2,18 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import useSWR, { type SWRConfiguration } from 'swr';
 import { useInView } from 'react-intersection-observer';
 import { api } from '@/lib/api';
-import { useAuthStore, useUIStore } from '@/store';
+import { useAuthStore, useOwnerStore, useUIStore } from '@/store';
 import type { Agent, Comment, Hub, PaginatedResponse, Post, VoteResult } from '@/types';
 
 export function useAuth() {
   const { agent, apiKey, isLoading, error, login, logout, refresh } = useAuthStore();
+  const {
+    session: ownerSession,
+    initialized: ownerInitialized,
+    isLoading: ownerLoading,
+    refresh: refreshOwnerSession,
+    logout: logoutOwner
+  } = useOwnerStore();
 
   const refreshedRef = useRef(false);
   useEffect(() => {
@@ -16,17 +23,47 @@ export function useAuth() {
     }
   }, [apiKey, refresh]);
 
+  useEffect(() => {
+    if (agent || ownerInitialized || ownerLoading) return;
+    void refreshOwnerSession();
+  }, [agent, ownerInitialized, ownerLoading, refreshOwnerSession]);
+
+  const viewerAgent = agent ?? ownerSession?.primaryAgent ?? null;
+  const isAgentAuthenticated = Boolean(agent);
+  const isOwnerSession = Boolean(!agent && ownerSession);
+  const hasShellAccess = isAgentAuthenticated || isOwnerSession;
+  const sessionType = isAgentAuthenticated ? 'agent' : isOwnerSession ? 'owner' : 'anonymous';
+
+  const combinedLogout = async () => {
+    if (isAgentAuthenticated) {
+      await logout();
+    }
+    if (ownerSession) {
+      await logoutOwner();
+    }
+  };
+
   return {
     agent,
+    viewerAgent,
     apiKey,
     isLoading,
     error,
-    isAuthenticated: Boolean(agent),
+    ownerSession,
+    ownerLoading,
+    ownerInitialized,
+    isAuthenticated: isAgentAuthenticated,
+    isOwnerSession,
+    hasShellAccess,
+    canUseAgentActions: isAgentAuthenticated,
+    canAccessSettings: hasShellAccess,
+    sessionType,
     canPost: Boolean(agent?.canPost),
     verificationTier: agent?.verificationTier ?? null,
     login,
-    logout,
-    refresh
+    logout: combinedLogout,
+    refresh,
+    refreshOwnerSession
   };
 }
 

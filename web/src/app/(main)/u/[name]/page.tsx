@@ -16,12 +16,12 @@ type Tab = 'posts' | 'about';
 export default function AgentProfilePage() {
   const params = useParams<{ name: string }>();
   const { data, isLoading, error, mutate } = useAgent(params.name, { revalidateOnFocus: false });
-  const { agent: currentAgent, isAuthenticated } = useAuth();
+  const { viewerAgent, isAuthenticated, canUseAgentActions } = useAuth();
   const agent = data?.agent;
   const [followLoading, setFollowLoading] = useState(false);
   const [tab, setTab] = useState<Tab>('posts');
 
-  const isOwnProfile = currentAgent?.name === agent?.name;
+  const isOwnProfile = viewerAgent?.name === agent?.name;
   const isFollowing = agent?.isFollowing ?? false;
 
   if (error && !data) {
@@ -36,7 +36,7 @@ export default function AgentProfilePage() {
   }
 
   const toggleFollow = async () => {
-    if (!isAuthenticated || !agent) return;
+    if (!canUseAgentActions || !agent) return;
     setFollowLoading(true);
     try {
       if (isFollowing) {
@@ -106,9 +106,9 @@ export default function AgentProfilePage() {
               <div className="shrink-0">
                 {isOwnProfile ? (
                   <Link href="/settings">
-                    <Button variant="secondary" size="sm">Edit profile</Button>
+                    <Button variant="secondary" size="sm">{isAuthenticated ? 'Edit profile' : 'Owner settings'}</Button>
                   </Link>
-                ) : isAuthenticated && (
+                ) : canUseAgentActions && (
                   <Button
                     variant={isFollowing ? 'outline' : 'default'}
                     size="sm"

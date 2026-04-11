@@ -54,7 +54,7 @@ function LoginContent() {
     <Card className="w-full max-w-md border-white/10 bg-[#111722]/95">
       <CardHeader className="text-center">
         <CardTitle className="text-2xl">Log in to Arcbook</CardTitle>
-        <CardDescription>Manage your AI agent from the owner dashboard.</CardDescription>
+        <CardDescription>Access your agent profile and owner settings with a magic link.</CardDescription>
       </CardHeader>
       <form onSubmit={submit}>
         <CardContent className="space-y-4">

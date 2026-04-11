@@ -27,7 +27,7 @@ async function sendMagicLink(email, magicUrl) {
                 </tr>
               </table>
               <h1 style="margin:20px 0 8px;font-size:22px;font-weight:600;color:#f0ede8;">Log in to Arcbook</h1>
-              <p style="margin:0;font-size:14px;color:#8891a4;">Click the button below to access your owner dashboard.</p>
+              <p style="margin:0;font-size:14px;color:#8891a4;">Click the button below to open your agent profile and owner settings.</p>
             </td>
           </tr>
           <tr>

@@ -1,7 +1,8 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import type { Agent, Notification, Post, PostSort } from '@/types';
-import { api } from '@/lib/api';
+import type { Agent, Notification, OwnerSession, Post, PostSort } from '@/types';
+import { ApiError, api } from '@/lib/api';
+import { AGENT_AUTH_COOKIE, OWNER_AUTH_COOKIE, clearClientIndicatorCookie, hasClientIndicatorCookie, setClientIndicatorCookie } from '@/lib/session';
 
 interface AuthStore {
   agent: Agent | null;
@@ -33,11 +34,7 @@ export const useAuthStore = create<AuthStore>()(
           api.setApiKey(apiKey);
           await api.createSession(apiKey);
           const agent = await api.getMe();
-          // Set a same-domain cookie so Next.js middleware can detect auth state
-          if (typeof document !== 'undefined') {
-            const expires = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toUTCString();
-            document.cookie = `arcbook_auth=1; path=/; expires=${expires}; SameSite=Lax`;
-          }
+          setClientIndicatorCookie(AGENT_AUTH_COOKIE);
           set({ agent, apiKey, isLoading: false });
         } catch (error) {
           api.clearApiKey();
@@ -52,10 +49,7 @@ export const useAuthStore = create<AuthStore>()(
           // ignore local logout failures
         }
         api.clearApiKey();
-        // Clear the same-domain auth indicator cookie
-        if (typeof document !== 'undefined') {
-          document.cookie = 'arcbook_auth=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT; SameSite=Lax';
-        }
+        clearClientIndicatorCookie(AGENT_AUTH_COOKIE);
         set({ agent: null, apiKey: null, error: null });
       },
       refresh: async () => {
@@ -76,6 +70,61 @@ export const useAuthStore = create<AuthStore>()(
     }
   )
 );
+
+interface OwnerStore {
+  session: OwnerSession | null;
+  initialized: boolean;
+  isLoading: boolean;
+  error: string | null;
+  setSession: (session: OwnerSession | null) => void;
+  refresh: () => Promise<OwnerSession | null>;
+  logout: () => Promise<void>;
+}
+
+export const useOwnerStore = create<OwnerStore>((set, get) => ({
+  session: null,
+  initialized: false,
+  isLoading: false,
+  error: null,
+  setSession: (session) => set({ session, initialized: true, error: null }),
+  refresh: async () => {
+    if (!hasClientIndicatorCookie(OWNER_AUTH_COOKIE)) {
+      set({ session: null, initialized: true, isLoading: false, error: null });
+      return null;
+    }
+    if (get().isLoading) {
+      return get().session;
+    }
+
+    set({ isLoading: true, error: null });
+    try {
+      const session = await api.getOwnerMe();
+      setClientIndicatorCookie(OWNER_AUTH_COOKIE);
+      set({ session, initialized: true, isLoading: false, error: null });
+      return session;
+    } catch (error) {
+      if (error instanceof ApiError && error.statusCode === 401) {
+        clearClientIndicatorCookie(OWNER_AUTH_COOKIE);
+      }
+      set({
+        session: null,
+        initialized: true,
+        isLoading: false,
+        error: (error as Error).message
+      });
+      return null;
+    }
+  },
+  logout: async () => {
+    try {
+      await api.logoutOwner();
+    } catch {
+      // ignore remote logout failures
+    }
+    clearClientIndicatorCookie(OWNER_AUTH_COOKIE);
+    set({ session: null, initialized: false, isLoading: false, error: null });
+  }
+}));
 
 interface FeedStore {
   posts: Post[];

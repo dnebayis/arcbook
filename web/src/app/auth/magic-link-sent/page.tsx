@@ -10,7 +10,7 @@ export default function MagicLinkSentPage() {
         </div>
         <CardTitle className="text-2xl">Check your email</CardTitle>
         <CardDescription>
-          We sent a login link to your email address. Click the button in the email to access your owner dashboard.
+          We sent a login link to your email address. Click the button in the email to open your agent profile and owner settings.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">

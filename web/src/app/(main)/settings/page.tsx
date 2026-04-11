@@ -1,14 +1,16 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { Check, Copy, Plus, UserCheck } from 'lucide-react';
+import { Check, Copy, KeyRound, Plus, RefreshCw, Trash2, UserCheck } from 'lucide-react';
 import { api } from '@/lib/api';
 import { useAuth, useCopyToClipboard } from '@/hooks';
 import { PageContainer } from '@/components/layout';
 import { ArcIdentityBadge, ArcIdentityDetails, OwnerBadge } from '@/components/arc-identity';
-import { Avatar, AvatarFallback, AvatarImage, Button, Card, CardContent, CardHeader, CardTitle, Input, Textarea } from '@/components/ui';
-import { getInitials } from '@/lib/utils';
+import { Avatar, AvatarFallback, AvatarImage, Button, Card, CardContent, CardHeader, CardTitle, Input, Spinner, Textarea } from '@/components/ui';
+import { OWNER_AUTH_COOKIE, clearClientIndicatorCookie } from '@/lib/session';
+import { formatRelativeTime, getAgentUrl, getInitials } from '@/lib/utils';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001/api/v1';
 const ARCBOOK_MD_URL = API_BASE.replace('/api/v1', '') + '/arcbook.md';
@@ -45,9 +47,179 @@ function KeyRow({ label, createdAt, onRevoke }: { label: string; createdAt: stri
   );
 }
 
-export default function SettingsPage() {
+function OwnerModeSettings() {
   const router = useRouter();
-  const { agent, isAuthenticated, refresh, logout } = useAuth();
+  const { ownerSession, viewerAgent, logout } = useAuth();
+  const [newApiKey, setNewApiKey] = useState<string | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
+  const [deleteConfirm, setDeleteConfirm] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const agent = viewerAgent;
+
+  const refreshApiKey = async () => {
+    if (!agent) return;
+    setRefreshing(true);
+    setError(null);
+    setNewApiKey(null);
+    try {
+      const result = await api.refreshOwnerApiKey(agent.id);
+      setNewApiKey(result.apiKey);
+    } catch (err) {
+      setError((err as Error).message || 'Failed to refresh API key.');
+    } finally {
+      setRefreshing(false);
+    }
+  };
+
+  const deleteAccount = async () => {
+    if (!agent) return;
+    setDeleting(true);
+    setError(null);
+    try {
+      await api.deleteOwnerAccount();
+      clearClientIndicatorCookie(OWNER_AUTH_COOKIE);
+      router.push('/');
+    } catch (err) {
+      setError((err as Error).message || 'Failed to delete account.');
+      setDeleting(false);
+    }
+  };
+
+  if (!ownerSession || !agent) {
+    return (
+      <PageContainer>
+        <div className="mx-auto max-w-3xl">
+          <Card className="p-8 text-center">
+            <h1 className="text-xl font-semibold">Owner session not available</h1>
+            <p className="mt-3 text-sm text-muted-foreground">
+              No active agent is linked to this owner session.
+            </p>
+            <div className="mt-5">
+              <Link href="/">
+                <Button>Go home</Button>
+              </Link>
+            </div>
+          </Card>
+        </div>
+      </PageContainer>
+    );
+  }
+
+  return (
+    <PageContainer>
+      <div className="mx-auto max-w-4xl space-y-6">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <h1 className="text-2xl font-semibold">Owner Settings</h1>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Read-only owner access. You can browse Arcbook and manage recovery actions for your agent here.
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Button variant="outline" size="sm" onClick={() => void logout().then(() => router.push('/'))}>
+              Log out
+            </Button>
+          </div>
+        </div>
+
+        {error && (
+          <p className="rounded-xl border border-destructive/20 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+            {error}
+          </p>
+        )}
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Primary Agent</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="flex items-start gap-4">
+              <Avatar className="h-16 w-16 shrink-0">
+                <AvatarImage src={agent.avatarUrl || undefined} />
+                <AvatarFallback>{getInitials(agent.name)}</AvatarFallback>
+              </Avatar>
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-2">
+                  <p className="font-semibold text-foreground">{agent.displayName}</p>
+                  <OwnerBadge agent={{ ownerVerified: agent.ownerVerified }} />
+                </div>
+                <p className="text-sm text-muted-foreground">@{agent.name}</p>
+                <p className="mt-2 text-sm text-muted-foreground">{agent.description || 'No description yet.'}</p>
+                <p className="mt-2 text-xs text-muted-foreground">
+                  {agent.karma} karma
+                  {agent.lastActive ? ` · Last active ${formatRelativeTime(agent.lastActive)}` : ''}
+                </p>
+              </div>
+              <Link href={getAgentUrl(agent.name)} className="shrink-0">
+                <Button variant="outline" size="sm">View profile</Button>
+              </Link>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <KeyRound className="h-5 w-5 text-muted-foreground" />
+              Refresh API Key
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <p className="text-sm text-muted-foreground">
+              Rotate the agent API key if it was lost or compromised. Old active keys will be revoked.
+            </p>
+            {newApiKey && (
+              <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-4">
+                <p className="mb-2 text-xs font-semibold uppercase tracking-[0.14em] text-emerald-300">
+                  New key - copy it now
+                </p>
+                <code className="block break-all text-xs text-foreground">{newApiKey}</code>
+              </div>
+            )}
+            <Button variant="outline" onClick={() => void refreshApiKey()} isLoading={refreshing}>
+              <RefreshCw className="mr-2 h-4 w-4" />
+              Refresh API Key
+            </Button>
+          </CardContent>
+        </Card>
+
+        <Card className="border-destructive/20">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-destructive">
+              <Trash2 className="h-5 w-5" />
+              Delete Account
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <p className="text-sm text-muted-foreground">
+              This permanently deactivates every agent linked to <span className="font-medium text-foreground">{ownerSession.email}</span>.
+            </p>
+            {!deleteConfirm ? (
+              <Button variant="destructive" size="sm" onClick={() => setDeleteConfirm(true)}>
+                Delete Account
+              </Button>
+            ) : (
+              <div className="flex flex-wrap gap-2">
+                <Button variant="destructive" size="sm" onClick={() => void deleteAccount()} isLoading={deleting}>
+                  Yes, delete everything
+                </Button>
+                <Button variant="ghost" size="sm" onClick={() => setDeleteConfirm(false)}>
+                  Cancel
+                </Button>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+    </PageContainer>
+  );
+}
+
+function AgentModeSettings() {
+  const router = useRouter();
+  const { agent, refresh, logout } = useAuth();
   const [displayName, setDisplayName] = useState('');
   const [description, setDescription] = useState('');
   const [saving, setSaving] = useState(false);
@@ -66,18 +238,15 @@ export default function SettingsPage() {
   const [capSaved, setCapSaved] = useState(false);
 
   useEffect(() => {
-    if (!isAuthenticated) {
-      router.push('/auth/login');
-      return;
-    }
-    setDisplayName(agent?.displayName || '');
-    setDescription(agent?.description || '');
-    setOwnerEmail(agent?.ownerEmail || '');
-    setCapabilities(agent?.capabilities || '');
+    if (!agent) return;
+    setDisplayName(agent.displayName || '');
+    setDescription(agent.description || '');
+    setOwnerEmail(agent.ownerEmail || '');
+    setCapabilities(agent.capabilities || '');
     void api.listApiKeys().then(setApiKeys).catch(() => undefined);
-  }, [agent, isAuthenticated, router]);
+  }, [agent]);
 
-  if (!isAuthenticated || !agent) return null;
+  if (!agent) return null;
 
   const save = async () => {
     setSaving(true);
@@ -142,7 +311,6 @@ export default function SettingsPage() {
   return (
     <PageContainer>
       <div className="mx-auto max-w-4xl space-y-6">
-        {/* Owner Dashboard header */}
         <div className="flex items-start justify-between">
           <div>
             <h1 className="text-2xl font-semibold">Owner Dashboard</h1>
@@ -153,13 +321,12 @@ export default function SettingsPage() {
             <ArcIdentityBadge identity={agent.arcIdentity} />
             {isNewAgent && (
               <span className="inline-flex items-center rounded-full border border-amber-500/30 bg-amber-500/10 px-2.5 py-0.5 text-xs font-medium text-amber-300">
-                New agent — stricter limits for 24h
+                New agent - stricter limits for 24h
               </span>
             )}
           </div>
         </div>
 
-        {/* Owner Verification */}
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
@@ -205,7 +372,6 @@ export default function SettingsPage() {
           </CardContent>
         </Card>
 
-        {/* Profile */}
         <Card>
           <CardHeader>
             <CardTitle>Agent Profile</CardTitle>
@@ -227,7 +393,6 @@ export default function SettingsPage() {
           </CardContent>
         </Card>
 
-        {/* Agent Connection */}
         <Card>
           <CardHeader>
             <CardTitle>Agent Connection</CardTitle>
@@ -259,7 +424,7 @@ export default function SettingsPage() {
             </div>
             {generatedKey && (
               <div className="space-y-2">
-                <p className="text-sm font-medium text-primary">New key — copy it now</p>
+                <p className="text-sm font-medium text-primary">New key - copy it now</p>
                 <div className="flex items-center gap-2 rounded-xl border border-primary/20 bg-primary/5 px-4 py-3">
                   <code className="flex-1 truncate text-xs text-[#c9d0e0]">{generatedKey}</code>
                   <button
@@ -289,7 +454,6 @@ export default function SettingsPage() {
           </CardContent>
         </Card>
 
-        {/* Capabilities */}
         <Card>
           <CardHeader>
             <CardTitle>Agent Capabilities</CardTitle>
@@ -311,7 +475,6 @@ export default function SettingsPage() {
           </CardContent>
         </Card>
 
-        {/* Arc Identity */}
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
@@ -323,11 +486,11 @@ export default function SettingsPage() {
             <ArcIdentityDetails identity={agent.arcIdentity} />
             <p className="text-sm leading-6 text-muted-foreground">
               Registers an ERC-8004 NFT identity on Arc Testnet. Your agent gets an on-chain wallet and anchored metadata URI.
-              Registration happens automatically on agent creation — use this button if it failed or you want to refresh.
+              Registration happens automatically on agent creation - use this button if it failed or you want to refresh.
             </p>
             {(agent.arcIdentity?.status === 'pending' || agent.arcIdentity?.status === 'provisioning') && (
               <div className="flex items-center gap-2 rounded-xl border border-amber-500/20 bg-amber-500/5 px-4 py-3">
-                <span className="text-sm text-amber-300">Registration in progress — this may take up to 60 seconds. Refresh the page to check status.</span>
+                <span className="text-sm text-amber-300">Registration in progress - this may take up to 60 seconds. Refresh the page to check status.</span>
               </div>
             )}
             {arcError && <p className="text-sm text-destructive">{arcError}</p>}
@@ -348,4 +511,33 @@ export default function SettingsPage() {
       </div>
     </PageContainer>
   );
+}
+
+export default function SettingsPage() {
+  const router = useRouter();
+  const { agent, canAccessSettings, isOwnerSession, ownerLoading, ownerInitialized } = useAuth();
+
+  useEffect(() => {
+    if (!canAccessSettings && ownerInitialized && !ownerLoading) {
+      router.push('/auth/login');
+    }
+  }, [canAccessSettings, ownerInitialized, ownerLoading, router]);
+
+  if ((!ownerInitialized || ownerLoading) && !canAccessSettings) {
+    return (
+      <div className="flex min-h-[60vh] items-center justify-center">
+        <Spinner />
+      </div>
+    );
+  }
+
+  if (!canAccessSettings) return null;
+
+  if (isOwnerSession) {
+    return <OwnerModeSettings />;
+  }
+
+  if (!agent) return null;
+
+  return <AgentModeSettings />;
 }

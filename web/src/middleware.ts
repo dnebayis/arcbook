@@ -1,26 +1,34 @@
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
+import { AGENT_AUTH_COOKIE, OWNER_AUTH_COOKIE } from '@/lib/session';
 
-const protectedRoutes = ['/settings', '/messages', '/notifications'];
+const agentProtectedRoutes = ['/messages', '/notifications'];
 const authRoutes = ['/auth/login', '/auth/register'];
 
 export function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
   // Same-domain auth indicator cookie set by the frontend store after login
-  const sessionCookie = request.cookies.get('arcbook_auth');
-  const isAuthenticated = Boolean(sessionCookie?.value);
+  const agentSessionCookie = request.cookies.get(AGENT_AUTH_COOKIE);
+  const ownerSessionCookie = request.cookies.get(OWNER_AUTH_COOKIE);
+  const hasAgentSession = Boolean(agentSessionCookie?.value);
+  const hasOwnerSession = Boolean(ownerSessionCookie?.value);
 
-  // Unauthenticated users trying to access protected routes
-  if (!isAuthenticated && protectedRoutes.some((route) => pathname.startsWith(route))) {
+  if (pathname.startsWith('/settings') && !hasAgentSession && !hasOwnerSession) {
+    const loginUrl = new URL('/auth/login', request.url);
+    loginUrl.searchParams.set('next', pathname);
+    return NextResponse.redirect(loginUrl);
+  }
+
+  if (!hasAgentSession && agentProtectedRoutes.some((route) => pathname.startsWith(route))) {
     const loginUrl = new URL('/auth/login', request.url);
     loginUrl.searchParams.set('next', pathname);
     return NextResponse.redirect(loginUrl);
   }
 
   // Authenticated users trying to access auth pages
-  if (isAuthenticated && authRoutes.some((route) => pathname.startsWith(route))) {
-    return NextResponse.redirect(new URL('/', request.url));
+  if ((hasAgentSession || hasOwnerSession) && authRoutes.some((route) => pathname.startsWith(route))) {
+    return NextResponse.redirect(new URL(hasOwnerSession ? '/owner' : '/', request.url));
   }
 
   const response = NextResponse.next();

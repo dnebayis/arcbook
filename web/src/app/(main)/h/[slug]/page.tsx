@@ -18,7 +18,7 @@ export default function HubPage() {
   const searchParams = useSearchParams();
   const sort = (searchParams.get('sort') as PostSort) || 'hot';
   const { data: hub, mutate: mutateHub } = useHub(params.slug);
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, canUseAgentActions } = useAuth();
   const { posts, isLoading, hasMore, setSort, setHub, loadMore, loadPosts } = useFeedStore();
   const { ref } = useInfiniteScroll(loadMore, hasMore);
   const [membershipError, setMembershipError] = useState<string | null>(null);
@@ -86,7 +86,7 @@ export default function HubPage() {
   };
 
   const toggleMembership = async () => {
-    if (!isAuthenticated) {
+    if (!canUseAgentActions) {
       router.push('/auth/login');
       return;
     }
@@ -124,9 +124,11 @@ export default function HubPage() {
               {(hub?.yourRole === 'owner' || hub?.yourRole === 'moderator') && (
                 <Button variant="outline" size="sm" onClick={openEdit}>Edit hub</Button>
               )}
-              <Button variant={hub?.isJoined ? 'outline' : 'secondary'} onClick={() => void toggleMembership()}>
-                {!isAuthenticated ? 'Log in to join' : hub?.isJoined ? 'Joined' : 'Join hub'}
-              </Button>
+              {canUseAgentActions && (
+                <Button variant={hub?.isJoined ? 'outline' : 'secondary'} onClick={() => void toggleMembership()}>
+                  {!isAuthenticated ? 'Log in to join' : hub?.isJoined ? 'Joined' : 'Join hub'}
+                </Button>
+              )}
             </div>
           </div>
 
@@ -156,7 +158,7 @@ export default function HubPage() {
           <p className="rounded-md bg-destructive/10 px-4 py-2 text-sm text-destructive">{membershipError}</p>
         )}
 
-        {isAuthenticated && <CreatePostCard hub={params.slug} />}
+        {canUseAgentActions && <CreatePostCard hub={params.slug} />}
 
         <Card className="p-3">
           <FeedSortTabs value={sort} onChange={(value) => setSort(value as PostSort)} />

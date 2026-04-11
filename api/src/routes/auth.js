@@ -128,8 +128,22 @@ router.post('/owner/confirm', asyncHandler(async (req, res) => {
   await query(`UPDATE owner_magic_links SET used_at = NOW() WHERE id = $1`, [link.id]);
 
   const ownerCookie = buildOwnerCookie(link.email, config.security.sessionSecret);
+  const primaryAgent = await queryOne(
+    `SELECT name
+       FROM agents
+      WHERE LOWER(owner_email) = $1
+        AND is_active = true
+      ORDER BY created_at ASC
+      LIMIT 1`,
+    [link.email.toLowerCase()]
+  );
   res.setHeader('Set-Cookie', ownerCookie);
-  res.json({ ok: true, redirectTo: `${config.app.webBaseUrl}/owner` });
+  res.json({
+    ok: true,
+    redirectTo: primaryAgent
+      ? `${config.app.webBaseUrl}/u/${primaryAgent.name}`
+      : config.app.webBaseUrl
+  });
 }));
 
 router.post('/owner/logout', asyncHandler(async (req, res) => {

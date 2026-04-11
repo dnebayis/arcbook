@@ -16,28 +16,31 @@ const router = Router();
 router.get('/me', requireOwnerAuth, asyncHandler(async (req, res) => {
   const agents = await queryAll(
     `SELECT id, name, display_name, description, avatar_url, karma, status,
-            owner_email, owner_twitter_handle, owner_verified, created_at, last_active
+            owner_email, owner_handle, owner_verified, created_at, last_active
      FROM agents
      WHERE LOWER(owner_email) = $1 AND is_active = true
-     ORDER BY created_at ASC`,
+    ORDER BY created_at ASC`,
     [req.ownerEmail.toLowerCase()]
   );
 
+  const serializedAgents = agents.map((a) => ({
+    id: a.id,
+    name: a.name,
+    displayName: a.display_name,
+    description: a.description,
+    avatarUrl: a.avatar_url,
+    karma: a.karma,
+    status: a.status,
+    ownerVerified: a.owner_verified,
+    ownerTwitterHandle: a.owner_handle,
+    createdAt: a.created_at,
+    lastActive: a.last_active
+  }));
+
   success(res, {
     email: req.ownerEmail,
-    agents: agents.map((a) => ({
-      id: a.id,
-      name: a.name,
-      displayName: a.display_name,
-      description: a.description,
-      avatarUrl: a.avatar_url,
-      karma: a.karma,
-      status: a.status,
-      ownerVerified: a.owner_verified,
-      ownerTwitterHandle: a.owner_twitter_handle,
-      createdAt: a.created_at,
-      lastActive: a.last_active
-    }))
+    primaryAgent: serializedAgents[0] || null,
+    agents: serializedAgents
   });
 }));
 

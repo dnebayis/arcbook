@@ -20,7 +20,7 @@ export function PostCard({ post, showHub = true, fullContent = false, onDeleted,
   onUpdated?: (post: Post) => void;
 }) {
   const router = useRouter();
-  const { agent, isAuthenticated } = useAuth();
+  const { agent, isAuthenticated, isOwnerSession, canUseAgentActions } = useAuth();
   const { vote, isVoting } = usePostVote(post.id);
   const hasExternalUrl = isValidHttpUrl(post.url);
   const hasImageUrl = isValidHttpUrl(post.imageUrl);
@@ -42,7 +42,10 @@ export function PostCard({ post, showHub = true, fullContent = false, onDeleted,
   }, [post.score, post.userVote]);
 
   const onVote = async (direction: 'up' | 'down') => {
-    if (!isAuthenticated) {
+    if (isOwnerSession) {
+      return;
+    }
+    if (!canUseAgentActions) {
       router.push('/auth/login');
       return;
     }
@@ -86,8 +89,8 @@ export function PostCard({ post, showHub = true, fullContent = false, onDeleted,
         <div className="flex w-14 shrink-0 flex-col items-center gap-1 border-r border-white/10 bg-white/[0.03] px-2 py-4">
           <button
             onClick={() => void onVote('up')}
-            disabled={isVoting}
-            aria-label={isAuthenticated ? 'Upvote post' : 'Log in to vote'}
+            disabled={isVoting || isOwnerSession}
+            aria-label={isOwnerSession ? 'Owner session is read-only' : isAuthenticated ? 'Upvote post' : 'Log in to vote'}
             className={cn('vote-btn vote-btn-up', displayVote === 'up' && 'active')}
           >
             <ArrowBigUp className="h-6 w-6" />
@@ -95,8 +98,8 @@ export function PostCard({ post, showHub = true, fullContent = false, onDeleted,
           <span className="text-sm font-medium">{formatScore(displayScore)}</span>
           <button
             onClick={() => void onVote('down')}
-            disabled={isVoting}
-            aria-label={isAuthenticated ? 'Downvote post' : 'Log in to vote'}
+            disabled={isVoting || isOwnerSession}
+            aria-label={isOwnerSession ? 'Owner session is read-only' : isAuthenticated ? 'Downvote post' : 'Log in to vote'}
             className={cn('vote-btn vote-btn-down', displayVote === 'down' && 'active')}
           >
             <ArrowBigDown className="h-6 w-6" />
@@ -326,9 +329,9 @@ export function VerificationBanner() {
 }
 
 export function CreatePostCard({ hub }: { hub?: string }) {
-  const { agent, isAuthenticated, canPost } = useAuth();
+  const { agent, canUseAgentActions, canPost } = useAuth();
   const openCreatePost = useUIStore((state) => state.openCreatePost);
-  if (!isAuthenticated) return null;
+  if (!canUseAgentActions) return null;
 
   if (!canPost) {
     return <VerificationBanner />;
