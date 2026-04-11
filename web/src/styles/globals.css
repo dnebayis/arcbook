@@ -1,0 +1,138 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 224 24% 8%;
+    --foreground: 15 22% 94%;
+    --card: 224 18% 12%;
+    --card-foreground: 15 22% 94%;
+    --popover: 224 18% 12%;
+    --popover-foreground: 15 22% 94%;
+    --primary: 4 74% 74%;
+    --primary-foreground: 228 30% 10%;
+    --secondary: 224 13% 18%;
+    --secondary-foreground: 15 22% 94%;
+    --muted: 224 14% 15%;
+    --muted-foreground: 223 11% 70%;
+    --accent: 357 29% 22%;
+    --accent-foreground: 15 22% 94%;
+    --destructive: 0 72% 64%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 224 12% 20%;
+    --input: 224 12% 20%;
+    --ring: 4 74% 74%;
+    --radius: 0.9rem;
+  }
+
+  .dark {
+    --background: 224 24% 8%;
+    --foreground: 15 22% 94%;
+    --card: 224 18% 12%;
+    --card-foreground: 15 22% 94%;
+    --popover: 224 18% 12%;
+    --popover-foreground: 15 22% 94%;
+    --primary: 4 74% 74%;
+    --primary-foreground: 228 30% 10%;
+    --secondary: 224 13% 18%;
+    --secondary-foreground: 15 22% 94%;
+    --muted: 224 14% 15%;
+    --muted-foreground: 223 11% 70%;
+    --accent: 357 29% 22%;
+    --accent-foreground: 15 22% 94%;
+    --destructive: 0 72% 64%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 224 12% 20%;
+    --input: 224 12% 20%;
+    --ring: 4 74% 74%;
+  }
+
+  * {
+    @apply border-border;
+  }
+
+  html {
+    scroll-behavior: smooth;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+    font-family: var(--font-sans), sans-serif;
+    background-image:
+      radial-gradient(circle at top, rgba(242, 137, 137, 0.1), transparent 24%),
+      linear-gradient(180deg, #0c1017, #111722 42%, #0d121a);
+    min-height: 100vh;
+  }
+
+  h1,
+  h2,
+  h3,
+  h4,
+  .font-display {
+    font-family: var(--font-sans), sans-serif;
+    letter-spacing: -0.02em;
+  }
+
+}
+
+@layer components {
+  .container-main {
+    @apply mx-auto w-full max-w-[1480px] px-3 sm:px-4 lg:px-6;
+  }
+
+  .surface-card {
+    @apply rounded-2xl border border-white/10 bg-card/95 shadow-[0_14px_40px_rgba(0,0,0,0.26)] backdrop-blur;
+  }
+
+  .surface-muted {
+    @apply rounded-2xl border border-white/10 bg-white/[0.03];
+  }
+
+  .nav-pill {
+    @apply flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-muted-foreground transition-all hover:bg-white/[0.05] hover:text-foreground;
+  }
+
+  .nav-pill-active {
+    @apply bg-[#311b23] text-[#ffd7da] shadow-[inset_0_0_0_1px_rgba(255,196,201,0.15)];
+  }
+
+  .accent-chip {
+    @apply inline-flex items-center rounded-full border border-[#f0b6b9]/20 bg-[#3a1f27] px-2.5 py-1 text-[11px] font-semibold tracking-[0.02em] text-[#ffd6d8];
+  }
+
+  .vote-btn {
+    @apply flex h-8 w-8 items-center justify-center rounded-lg border border-transparent bg-transparent transition-colors;
+  }
+
+  .vote-btn-up {
+    @apply hover:border-[#f0b6b9]/20 hover:bg-[#3a1f27] hover:text-[#ffb3b7];
+  }
+
+  .vote-btn-up.active {
+    @apply border-[#f0b6b9]/20 bg-[#3a1f27] text-[#ffb3b7];
+  }
+
+  .vote-btn-down {
+    @apply hover:border-[#b3c7ff]/20 hover:bg-[#1c253d] hover:text-[#b9ccff];
+  }
+
+  .vote-btn-down.active {
+    @apply border-[#b3c7ff]/20 bg-[#1c253d] text-[#b9ccff];
+  }
+
+  .gradient-text {
+    @apply bg-clip-text text-transparent;
+    background-image: linear-gradient(135deg, rgb(255 208 211), rgb(245 143 150));
+  }
+}
+
+@layer utilities {
+  .text-upvote {
+    color: #ffb3b7;
+  }
+
+  .text-downvote {
+    color: #b9ccff;
+  }
+}

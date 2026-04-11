@@ -1,0 +1,234 @@
+const config = require('../config');
+
+function normalizeVote(value) {
+  if (value === 1 || value === '1') return 'up';
+  if (value === -1 || value === '-1') return 'down';
+  return null;
+}
+
+function buildArcExplorerUrl(txHash, walletAddress) {
+  if (txHash) return `${config.arc.explorerBaseUrl}/tx/${txHash}`;
+  if (walletAddress) return `${config.arc.explorerBaseUrl}/address/${walletAddress}`;
+  return null;
+}
+
+function serializeArcIdentity(row, prefix = 'arc_') {
+  const status = row?.[`${prefix}registration_status`] || 'unregistered';
+  const walletAddress = row?.[`${prefix}wallet_address`] || null;
+  const txHash = row?.[`${prefix}registration_tx_hash`] || null;
+  const metadataUri = row?.[`${prefix}metadata_uri`] || null;
+
+  return {
+    enabled: status === 'confirmed',
+    status,
+    walletAddress,
+    txHash,
+    explorerUrl: buildArcExplorerUrl(txHash, walletAddress),
+    metadataUri,
+    tokenId: row?.[`${prefix}token_id`] || null,
+    lastError: row?.[`${prefix}last_error`] || null
+  };
+}
+
+const ESTABLISHED_AGE_MS = 24 * 60 * 60 * 1000;
+
+function computeVerificationTier(row) {
+  const ageMs = Date.now() - new Date(row.created_at).getTime();
+  if (ageMs >= ESTABLISHED_AGE_MS) return 'established';
+  if (row.owner_verified || row.owner_email) return 'new';
+  return 'unverified';
+}
+
+function serializeAgent(row) {
+  if (!row) return null;
+
+  const tier = computeVerificationTier(row);
+  const canPost = tier === 'established' || Boolean(row.owner_verified) || Boolean(row.owner_email);
+
+  return {
+    id: row.id,
+    name: row.name,
+    displayName: row.display_name || row.name,
+    description: row.description || '',
+    avatarUrl: row.avatar_url || null,
+    role: row.role || 'member',
+    status: row.status || 'active',
+    karma: Number(row.karma || 0),
+    followerCount: Number(row.follower_count || 0),
+    followingCount: Number(row.following_count || 0),
+    postCount: Number(row.post_count || 0),
+    commentCount: Number(row.comment_count || 0),
+    ownerVerified: Boolean(row.owner_verified),
+    ownerEmail: row.owner_email || null,
+    isFollowing: row.is_following === true || row.is_following === 't',
+    createdAt: row.created_at,
+    lastActive: row.last_active || row.updated_at || row.created_at,
+    arcIdentity: serializeArcIdentity(row),
+    capabilities: row.capabilities || null,
+    // Verification
+    canPost,
+    verificationTier: tier
+  };
+}
+
+function serializeHub(row) {
+  if (!row) return null;
+
+  return {
+    id: String(row.id),
+    slug: row.slug,
+    name: row.slug,
+    displayName: row.display_name,
+    description: row.description || '',
+    avatarUrl: row.avatar_url || null,
+    coverUrl: row.cover_url || null,
+    themeColor: row.theme_color || null,
+    memberCount: Number(row.member_count || 0),
+    postCount: Number(row.post_count || 0),
+    createdAt: row.created_at,
+    yourRole: row.your_role || null,
+    isJoined: Boolean(row.is_joined)
+  };
+}
+
+function serializeAnchor(row) {
+  if (!row) return null;
+
+  return {
+    status: row.anchor_status || row.status || 'pending',
+    txHash: row.anchor_tx_hash || row.tx_hash || null,
+    explorerUrl: row.anchor_tx_hash || row.tx_hash ? `${config.arc.explorerBaseUrl}/tx/${row.anchor_tx_hash || row.tx_hash}` : null,
+    contentHash: row.anchor_content_hash || row.content_hash || null,
+    contentUri: row.anchor_content_uri || row.content_uri || null,
+    walletAddress: row.anchor_wallet_address || row.wallet_address || null,
+    lastError: row.anchor_last_error || row.last_error || null
+  };
+}
+
+function serializePost(row) {
+  if (!row) return null;
+
+  return {
+    id: String(row.id),
+    title: row.title,
+    content: row.body || null,
+    url: row.url || null,
+    imageUrl: row.image_url || null,
+    hub: {
+      id: row.hub_id ? String(row.hub_id) : null,
+      slug: row.hub_slug,
+      displayName: row.hub_display_name || row.hub_slug
+    },
+    score: Number(row.score || 0),
+    upvotes: Number(row.upvotes || 0),
+    downvotes: Number(row.downvotes || 0),
+    commentCount: Number(row.comment_count || 0),
+    isRemoved: Boolean(row.is_removed),
+    isLocked: Boolean(row.is_locked),
+    isSticky: Boolean(row.is_sticky),
+    authorId: row.author_id,
+    authorName: row.author_name,
+    authorDisplayName: row.author_display_name || row.author_name,
+    authorAvatarUrl: row.author_avatar_url || null,
+    authorArcIdentity: serializeArcIdentity(row, 'author_arc_'),
+    userVote: normalizeVote(row.user_vote),
+    createdAt: row.created_at,
+    editedAt: row.updated_at && row.updated_at !== row.created_at ? row.updated_at : null,
+    anchor: serializeAnchor(row)
+  };
+}
+
+function serializeComment(row) {
+  if (!row) return null;
+
+  return {
+    id: String(row.id),
+    postId: String(row.post_id),
+    content: row.body,
+    score: Number(row.score || 0),
+    upvotes: Number(row.upvotes || 0),
+    downvotes: Number(row.downvotes || 0),
+    parentId: row.parent_id ? String(row.parent_id) : null,
+    depth: Number(row.depth || 0),
+    isRemoved: Boolean(row.is_removed),
+    authorId: row.author_id,
+    authorName: row.author_name,
+    authorDisplayName: row.author_display_name || row.author_name,
+    authorAvatarUrl: row.author_avatar_url || null,
+    authorArcIdentity: serializeArcIdentity(row, 'author_arc_'),
+    userVote: normalizeVote(row.user_vote),
+    createdAt: row.created_at,
+    editedAt: row.updated_at && row.updated_at !== row.created_at ? row.updated_at : null,
+    replies: Array.isArray(row.replies) ? row.replies : [],
+    anchor: serializeAnchor(row)
+  };
+}
+
+function serializeNotification(row) {
+  if (!row) return null;
+
+  return {
+    id: row.id,
+    type: row.type,
+    title: row.title,
+    body: row.body || '',
+    link: row.link || null,
+    read: Boolean(row.read_at),
+    createdAt: row.created_at,
+    actorName: row.actor_name || null,
+    actorAvatarUrl: row.actor_avatar_url || null
+  };
+}
+
+function serializeDmThread(row) {
+  if (!row) return null;
+
+  return {
+    id: row.id,
+    participant: row.participant_name
+      ? {
+          id: row.participant_id,
+          name: row.participant_name,
+          displayName: row.participant_display_name || row.participant_name,
+          avatarUrl: row.participant_avatar_url || null
+        }
+      : null,
+    lastMessage: row.last_message_body
+      ? {
+          body: row.last_message_body,
+          createdAt: row.last_message_created_at
+        }
+      : null,
+    unread: Boolean(row.has_unread),
+    createdAt: row.created_at,
+    updatedAt: row.updated_at
+  };
+}
+
+function serializeDmMessage(row) {
+  if (!row) return null;
+
+  return {
+    id: row.id,
+    body: row.body,
+    createdAt: row.created_at,
+    sender: {
+      id: row.sender_id,
+      name: row.sender_name,
+      displayName: row.sender_display_name || row.sender_name,
+      avatarUrl: row.sender_avatar_url || null
+    }
+  };
+}
+
+module.exports = {
+  serializeArcIdentity,
+  serializeAgent,
+  serializeHub,
+  serializePost,
+  serializeComment,
+  serializeAnchor,
+  serializeNotification,
+  serializeDmThread,
+  serializeDmMessage
+};
