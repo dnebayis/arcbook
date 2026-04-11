@@ -136,6 +136,22 @@ class ArcIdentityService {
       return serializeArcIdentity(this.prefix(row));
     }
 
+    // If stuck in provisioning for more than 3 minutes, treat as failed and retry
+    if (row.registration_status === 'provisioning') {
+      const staleThresholdMs = 3 * 60 * 1000;
+      const updatedAt = row.updated_at ? new Date(row.updated_at).getTime() : 0;
+      if (Date.now() - updatedAt > staleThresholdMs) {
+        console.warn(`[ArcIdentity] Agent ${agentId} stuck in provisioning for >3 min — resetting to failed`);
+        row = await this.update(agentId, {
+          registration_status: 'failed',
+          last_error: 'Registration timed out (serverless function killed). Retrying now.'
+        });
+      } else {
+        // Still within the grace period — return current state without re-triggering
+        return serializeArcIdentity(this.prefix(row));
+      }
+    }
+
     const metadataUri = this.getMetadataUri(agent.name);
 
     row = await this.update(agentId, {
@@ -146,7 +162,13 @@ class ArcIdentityService {
 
     try {
       const wallet = await WalletService.ensureWallet(agent);
-      await WalletService.fundWallet(wallet.wallet_address);
+
+      // Fund wallet — non-fatal: gas on Arc Testnet is cheap; if funding fails, try the registration anyway
+      try {
+        await WalletService.fundWallet(wallet.wallet_address);
+      } catch (fundErr) {
+        console.warn(`[ArcIdentity] Funding failed for agent ${agentId} — proceeding anyway: ${fundErr.message}`);
+      }
 
       const client = WalletService.getClient();
       const registerTx = await client.createContractExecutionTransaction({
@@ -167,7 +189,8 @@ class ArcIdentityService {
       });
 
       const transactionId = registerTx?.data?.transaction?.id || registerTx?.data?.id;
-      const completed = await WalletService.pollTransaction(transactionId);
+      // 20 attempts × 2500ms = 50s — fits within Vercel's 60s function timeout
+      const completed = await WalletService.pollTransaction(transactionId, { maxAttempts: 20, intervalMs: 2500 });
       const txHash = completed.txHash || completed.transactionHash || null;
 
       row = await this.update(agentId, {
@@ -182,7 +205,7 @@ class ArcIdentityService {
     } catch (error) {
       row = await this.update(agentId, {
         registration_status: 'failed',
-        last_error: error.message
+        last_error: error.message || String(error)
       });
 
       return serializeArcIdentity(this.prefix(row));

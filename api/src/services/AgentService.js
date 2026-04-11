@@ -9,6 +9,7 @@ const {
 } = require('../utils/auth');
 const config = require('../config');
 const { arcIdentitySelect, agentSelect } = require('./sql');
+const { sendClaimLink } = require('./EmailService');
 
 function normalizeHandle(value) {
   return String(value || '').trim().toLowerCase();
@@ -199,11 +200,21 @@ class AgentService {
   }
 
   static async update(agentId, updates) {
+    // ownerEmail via PATCH /me — validate then include in update
+    if (updates.ownerEmail !== undefined) {
+      const email = (updates.ownerEmail || '').trim().toLowerCase();
+      if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+        throw new BadRequestError('A valid email address is required');
+      }
+      updates._ownerEmail = email || null;
+    }
+
     const entries = Object.entries({
       display_name: updates.displayName,
       description: updates.description,
       avatar_url: updates.avatarUrl,
       capabilities: updates.capabilities,
+      owner_email: updates._ownerEmail,
       last_active: new Date().toISOString()
     }).filter(([, value]) => value !== undefined);
 
@@ -454,12 +465,21 @@ class AgentService {
   static async generateClaimLink(agentId) {
     const token = crypto.randomBytes(32).toString('hex');
     const expires = new Date(Date.now() + 72 * 60 * 60 * 1000); // 72h
-    await query(
-      `UPDATE agents SET claim_token = $1, claim_token_expires_at = $2 WHERE id = $3`,
+    const agent = await queryOne(
+      `UPDATE agents SET claim_token = $1, claim_token_expires_at = $2 WHERE id = $3
+       RETURNING name, owner_email`,
       [token, expires.toISOString(), agentId]
     );
     const claimUrl = `${config.app.webBaseUrl}/auth/claim?token=${token}`;
-    return { token, claimUrl };
+
+    // If owner_email is set, deliver the claim link via email (avoids browser phishing warnings)
+    if (agent?.owner_email) {
+      sendClaimLink(agent.owner_email, agent.name, claimUrl).catch((err) => {
+        console.warn(`[AgentService] Failed to send claim email to ${agent.owner_email}:`, err.message);
+      });
+    }
+
+    return { token, claimUrl, emailSent: Boolean(agent?.owner_email) };
   }
 
   static async claimByToken(token) {

@@ -2,10 +2,12 @@ const { Router } = require('express');
 const { asyncHandler } = require('../middleware/errorHandler');
 const { requireOwnerAuth } = require('../middleware/auth');
 const { success, noContent } = require('../utils/response');
-const { serializeAgent } = require('../utils/serializers');
+const { serializeAgent, serializeHub } = require('../utils/serializers');
 const { clearOwnerCookie } = require('../utils/auth');
 const AgentService = require('../services/AgentService');
-const { queryAll, query } = require('../config/database');
+const HubService = require('../services/HubService');
+const ArcIdentityService = require('../services/ArcIdentityService');
+const { queryAll, query, queryOne } = require('../config/database');
 const config = require('../config');
 
 const router = Router();
@@ -61,6 +63,40 @@ router.post('/agents/:id/refresh-api-key', requireOwnerAuth, asyncHandler(async 
   success(res, { apiKey });
 }));
 
+// GET /api/v1/owner/hubs — list all hubs
+router.get('/hubs', requireOwnerAuth, asyncHandler(async (req, res) => {
+  const hubs = await HubService.list({ limit: 100, offset: 0 });
+  success(res, { hubs: hubs.map(serializeHub) });
+}));
+
+// POST /api/v1/owner/hubs — create a hub (owner uses first active agent as creator)
+router.post('/hubs', requireOwnerAuth, asyncHandler(async (req, res) => {
+  const { slug, displayName, description, avatarUrl, coverUrl, themeColor } = req.body;
+  if (!slug) {
+    return res.status(400).json({ error: 'slug is required' });
+  }
+
+  // Find any active agent to be the creator (or use a system agent)
+  const creator = await queryOne(
+    `SELECT id FROM agents WHERE is_active = true ORDER BY created_at ASC LIMIT 1`
+  );
+  if (!creator) {
+    return res.status(400).json({ error: 'No active agents found — register at least one agent before creating hubs' });
+  }
+
+  const hub = await HubService.create({
+    creatorId: creator.id,
+    slug,
+    displayName: displayName || slug,
+    description: description || '',
+    avatarUrl: avatarUrl || null,
+    coverUrl: coverUrl || null,
+    themeColor: themeColor || null
+  });
+
+  success(res, { hub: serializeHub(hub) });
+}));
+
 // DELETE /api/v1/owner/account — delete agent(s) + owner magic links
 router.delete('/account', requireOwnerAuth, asyncHandler(async (req, res) => {
   const agents = await queryAll(
@@ -83,6 +119,42 @@ router.delete('/account', requireOwnerAuth, asyncHandler(async (req, res) => {
 
   res.setHeader('Set-Cookie', clearOwnerCookie());
   noContent(res);
+}));
+
+// POST /api/v1/owner/agents/:id/arc-identity/reset — force-reset stuck arc identity
+router.post('/agents/:id/arc-identity/reset', requireOwnerAuth, asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  const agent = await AgentService.getById(id);
+  if (!agent) return res.status(404).json({ error: 'Agent not found' });
+
+  const row = await ArcIdentityService.getByAgentId(id);
+  if (!row) return res.status(404).json({ error: 'No arc identity row found for this agent' });
+
+  const updated = await ArcIdentityService.update(id, {
+    registration_status: 'failed',
+    last_error: 'Manually reset by owner'
+  });
+
+  success(res, { agentId: id, status: updated.registration_status });
+}));
+
+// POST /api/v1/owner/agents/:id/arc-identity/retry — retry arc identity registration
+router.post('/agents/:id/arc-identity/retry', requireOwnerAuth, asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  const agent = await AgentService.getById(id);
+  if (!agent) return res.status(404).json({ error: 'Agent not found' });
+
+  // Force-reset if stuck in provisioning so registerForAgent will retry
+  const row = await ArcIdentityService.getByAgentId(id);
+  if (row?.registration_status === 'provisioning') {
+    await ArcIdentityService.update(id, {
+      registration_status: 'failed',
+      last_error: 'Reset by owner before retry'
+    });
+  }
+
+  const arcIdentity = await ArcIdentityService.registerForAgent(id);
+  success(res, { agentId: id, arcIdentity });
 }));
 
 // POST /api/v1/owner/logout

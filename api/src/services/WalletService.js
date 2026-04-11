@@ -122,12 +122,12 @@ class WalletService {
     return this.pollTransaction(txId);
   }
 
-  static async pollTransaction(transactionId) {
+  static async pollTransaction(transactionId, { maxAttempts = 20, intervalMs = 2500 } = {}) {
     const client = this.getClient();
 
-    for (let attempt = 0; attempt < 40; attempt += 1) {
+    for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
       if (attempt > 0) {
-        await new Promise((resolve) => setTimeout(resolve, 2500));
+        await new Promise((resolve) => setTimeout(resolve, intervalMs));
       }
 
       const response = await client.getTransaction({ id: transactionId });

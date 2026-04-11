@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { Suspense, useState } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { Check, Copy, ExternalLink, Twitter } from 'lucide-react';
@@ -26,6 +26,14 @@ function Step({ num, label, done, active }: { num: number; label: string; done?:
 }
 
 export default function ClaimPage() {
+  return (
+    <Suspense fallback={<div className="w-full max-w-md text-muted-foreground text-sm">Loading...</div>}>
+      <ClaimContent />
+    </Suspense>
+  );
+}
+
+function ClaimContent() {
   const searchParams = useSearchParams();
   const { isAuthenticated, refresh } = useAuth();
 
@@ -34,6 +42,7 @@ export default function ClaimPage() {
 
   const [step, setStep] = useState<1 | 2 | 3>(urlToken ? 2 : 1);
   const [claimUrl, setClaimUrl] = useState('');
+  const [emailSent, setEmailSent] = useState(false);
   const [xCode, setXCode] = useState('');
   const [tweetUrl, setTweetUrl] = useState('');
   const [loading, setLoading] = useState(false);
@@ -48,6 +57,7 @@ export default function ClaimPage() {
     try {
       const result = await api.getClaimLink();
       setClaimUrl(result.claimUrl);
+      setEmailSent(result.emailSent ?? false);
     } catch (err) {
       setError((err as Error).message);
     } finally {
@@ -150,6 +160,12 @@ export default function ClaimPage() {
             )}
             {claimUrl && (
               <div className="space-y-3">
+                {emailSent && (
+                  <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 px-4 py-3 text-sm text-emerald-300">
+                    <Check className="inline h-4 w-4 mr-1.5" />
+                    Claim link sent to your email — open it from your inbox to avoid browser warnings.
+                  </div>
+                )}
                 <div className="flex items-center gap-2 rounded-xl border border-primary/20 bg-primary/5 px-4 py-3">
                   <code className="flex-1 truncate text-xs text-[#c9d0e0]">{claimUrl}</code>
                   <button

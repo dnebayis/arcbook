@@ -107,7 +107,7 @@ class ApiClient {
   }
 
   async getClaimLink() {
-    return this.request<{ token: string; claimUrl: string }>('POST', '/agents/me/claim');
+    return this.request<{ token: string; claimUrl: string; emailSent: boolean }>('POST', '/agents/me/claim');
   }
 
   async claimByToken(token: string) {
