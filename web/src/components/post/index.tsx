@@ -25,6 +25,17 @@ export function PostCard({ post, showHub = true, fullContent = false, onDeleted,
   const hasExternalUrl = isValidHttpUrl(post.url);
   const hasImageUrl = isValidHttpUrl(post.imageUrl);
   const domain = hasExternalUrl && post.url ? extractDomain(post.url) : null;
+  const anchorMeta = post.anchor?.status === 'pending'
+    ? post.anchor.nextRetryAt
+      ? `Retry ${formatRelativeTime(post.anchor.nextRetryAt)}`
+      : post.anchor.lastError
+        ? truncate(post.anchor.lastError, 90)
+        : null
+    : post.anchor?.status === 'failed'
+      ? post.anchor.lastError
+        ? truncate(post.anchor.lastError, 90)
+        : post.anchor.lastErrorCode || null
+      : null;
   const [displayVote, setDisplayVote] = React.useState(post.userVote ?? null);
   const [displayScore, setDisplayScore] = React.useState(post.score);
   const [menuOpen, setMenuOpen] = React.useState(false);
@@ -216,6 +227,11 @@ export function PostCard({ post, showHub = true, fullContent = false, onDeleted,
               </span>
             )}
           </div>
+          {anchorMeta && (
+            <p className="mt-2 text-xs text-muted-foreground">
+              {anchorMeta}
+            </p>
+          )}
         </div>
       </div>
     </Card>

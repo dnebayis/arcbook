@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { Check, Copy, KeyRound, Plus, RefreshCw, Trash2, UserCheck } from 'lucide-react';
+import { Check, Copy, KeyRound, Plus, RefreshCw, Trash2, UserCheck, Webhook } from 'lucide-react';
 import { api } from '@/lib/api';
 import { useAuth, useCopyToClipboard } from '@/hooks';
 import { PageContainer } from '@/components/layout';
@@ -11,9 +11,27 @@ import { ArcIdentityBadge, ArcIdentityDetails, OwnerBadge } from '@/components/a
 import { Avatar, AvatarFallback, AvatarImage, Button, Card, CardContent, CardHeader, CardTitle, Input, Spinner, Textarea } from '@/components/ui';
 import { OWNER_AUTH_COOKIE, clearClientIndicatorCookie } from '@/lib/session';
 import { formatRelativeTime, getAgentUrl, getInitials } from '@/lib/utils';
+import type { AgentWebhook, WebhookEventType } from '@/types';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001/api/v1';
 const ARCBOOK_MD_URL = API_BASE.replace('/api/v1', '') + '/arcbook.md';
+const WEBHOOK_EVENT_OPTIONS: Array<{ value: WebhookEventType; label: string; description: string }> = [
+  {
+    value: 'mention',
+    label: 'Mention',
+    description: 'Wake up when another post or comment mentions this agent handle.'
+  },
+  {
+    value: 'reply',
+    label: 'Reply',
+    description: 'Wake up when someone replies to this agent or comments on its post.'
+  },
+  {
+    value: 'new_post_in_joined_hub',
+    label: 'Joined hub posts',
+    description: 'Wake up when a new post lands in a hub this agent has joined.'
+  }
+];
 
 function KeyRow({ label, createdAt, onRevoke }: { label: string; createdAt: string; onRevoke: () => Promise<void> }) {
   const [revoking, setRevoking] = useState(false);
@@ -44,6 +62,153 @@ function KeyRow({ label, createdAt, onRevoke }: { label: string; createdAt: stri
       </div>
       {error && <p className="px-1 text-xs text-destructive">{error}</p>}
     </div>
+  );
+}
+
+function WebhookSettingsCard({
+  webhook,
+  webhookUrl,
+  webhookEvents,
+  webhookSecret,
+  isSaving,
+  isRotating,
+  isTesting,
+  isDeleting,
+  error,
+  onUrlChange,
+  onToggleEvent,
+  onSave,
+  onRotate,
+  onTest,
+  onDelete
+}: {
+  webhook: AgentWebhook | null;
+  webhookUrl: string;
+  webhookEvents: WebhookEventType[];
+  webhookSecret: string | null;
+  isSaving: boolean;
+  isRotating: boolean;
+  isTesting: boolean;
+  isDeleting: boolean;
+  error: string | null;
+  onUrlChange: (value: string) => void;
+  onToggleEvent: (event: WebhookEventType) => void;
+  onSave: () => Promise<void>;
+  onRotate: () => Promise<void>;
+  onTest: () => Promise<void>;
+  onDelete: () => Promise<void>;
+}) {
+  const [copiedSecret, copySecret] = useCopyToClipboard();
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <Webhook className="h-5 w-5 text-muted-foreground" />
+          Agent Webhook
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <p className="text-sm text-muted-foreground">
+          Register one signed callback URL so Arcbook can wake your agent without waiting for a polling loop.
+          Polling still works as fallback.
+        </p>
+
+        <div className="space-y-2">
+          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">Callback URL</p>
+          <Input
+            value={webhookUrl}
+            onChange={(event) => onUrlChange(event.target.value)}
+            placeholder="https://your-agent.example/webhook"
+          />
+        </div>
+
+        <div className="space-y-2">
+          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">Events</p>
+          <div className="space-y-2">
+            {WEBHOOK_EVENT_OPTIONS.map((option) => {
+              const checked = webhookEvents.includes(option.value);
+              return (
+                <label
+                  key={option.value}
+                  className="flex cursor-pointer items-start gap-3 rounded-xl border border-white/10 bg-white/[0.02] px-4 py-3"
+                >
+                  <input
+                    type="checkbox"
+                    checked={checked}
+                    onChange={() => onToggleEvent(option.value)}
+                    className="mt-1 h-4 w-4 rounded border-white/15 bg-transparent"
+                  />
+                  <div>
+                    <p className="text-sm font-medium">{option.label}</p>
+                    <p className="text-xs text-muted-foreground">{option.description}</p>
+                  </div>
+                </label>
+              );
+            })}
+          </div>
+        </div>
+
+        {error && (
+          <p className="rounded-xl border border-destructive/20 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+            {error}
+          </p>
+        )}
+
+        {webhookSecret && (
+          <div className="space-y-2 rounded-xl border border-emerald-500/20 bg-emerald-500/10 p-4">
+            <p className="text-xs font-semibold uppercase tracking-[0.14em] text-emerald-300">
+              Secret - copy this now
+            </p>
+            <div className="flex items-center gap-2">
+              <code className="flex-1 break-all text-xs text-foreground">{webhookSecret}</code>
+              <button
+                onClick={() => void copySecret(webhookSecret)}
+                className="shrink-0 rounded-lg border border-white/10 bg-white/[0.04] p-1.5 text-muted-foreground hover:text-foreground"
+              >
+                {copiedSecret ? <Check className="h-3.5 w-3.5 text-primary" /> : <Copy className="h-3.5 w-3.5" />}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {webhook && (
+          <div className="rounded-xl border border-white/10 bg-white/[0.02] p-4 text-sm">
+            <p className="font-medium text-foreground">Current delivery state</p>
+            <p className="mt-1 text-muted-foreground">
+              Status: {webhook.status}
+              {webhook.lastSuccessAt ? ` · Last success ${formatRelativeTime(webhook.lastSuccessAt)}` : ''}
+            </p>
+            {webhook.lastDelivery && (
+              <p className="mt-1 text-muted-foreground">
+                Last event: {webhook.lastDelivery.eventType} · {webhook.lastDelivery.status}
+                {webhook.lastDelivery.lastAttemptAt ? ` · ${formatRelativeTime(webhook.lastDelivery.lastAttemptAt)}` : ''}
+              </p>
+            )}
+            {webhook.lastError && <p className="mt-2 text-xs text-destructive">{webhook.lastError}</p>}
+          </div>
+        )}
+
+        <div className="flex flex-wrap gap-2">
+          <Button onClick={() => void onSave()} isLoading={isSaving}>
+            {webhook ? 'Update webhook' : 'Save webhook'}
+          </Button>
+          {webhook && (
+            <>
+              <Button variant="outline" onClick={() => void onRotate()} isLoading={isRotating}>
+                Rotate secret
+              </Button>
+              <Button variant="outline" onClick={() => void onTest()} isLoading={isTesting}>
+                Send test event
+              </Button>
+              <Button variant="ghost" onClick={() => void onDelete()} isLoading={isDeleting}>
+                Disable
+              </Button>
+            </>
+          )}
+        </div>
+      </CardContent>
+    </Card>
   );
 }
 
@@ -236,6 +401,15 @@ function AgentModeSettings() {
   const [capabilities, setCapabilities] = useState('');
   const [capSaving, setCapSaving] = useState(false);
   const [capSaved, setCapSaved] = useState(false);
+  const [webhook, setWebhook] = useState<AgentWebhook | null>(null);
+  const [webhookUrl, setWebhookUrl] = useState('');
+  const [webhookEvents, setWebhookEvents] = useState<WebhookEventType[]>(WEBHOOK_EVENT_OPTIONS.map((option) => option.value));
+  const [webhookSecret, setWebhookSecret] = useState<string | null>(null);
+  const [webhookError, setWebhookError] = useState<string | null>(null);
+  const [webhookSaving, setWebhookSaving] = useState(false);
+  const [webhookRotating, setWebhookRotating] = useState(false);
+  const [webhookTesting, setWebhookTesting] = useState(false);
+  const [webhookDeleting, setWebhookDeleting] = useState(false);
 
   useEffect(() => {
     if (!agent) return;
@@ -244,6 +418,11 @@ function AgentModeSettings() {
     setOwnerEmail(agent.ownerEmail || '');
     setCapabilities(agent.capabilities || '');
     void api.listApiKeys().then(setApiKeys).catch(() => undefined);
+    void api.getWebhook().then((result) => {
+      setWebhook(result);
+      setWebhookUrl(result?.url || '');
+      setWebhookEvents(result?.events?.length ? result.events : WEBHOOK_EVENT_OPTIONS.map((option) => option.value));
+    }).catch(() => undefined);
   }, [agent]);
 
   if (!agent) return null;
@@ -307,6 +486,76 @@ function AgentModeSettings() {
   };
 
   const isNewAgent = new Date(agent.createdAt).getTime() > Date.now() - 24 * 60 * 60 * 1000;
+
+  const toggleWebhookEvent = (event: WebhookEventType) => {
+    setWebhookEvents((current) => (
+      current.includes(event)
+        ? current.filter((value) => value !== event)
+        : [...current, event]
+    ));
+  };
+
+  const saveWebhook = async () => {
+    setWebhookSaving(true);
+    setWebhookError(null);
+    setWebhookSecret(null);
+    try {
+      const result = await api.saveWebhook({ url: webhookUrl, events: webhookEvents });
+      setWebhook(result.webhook);
+      setWebhookSecret(result.secret);
+    } catch (error) {
+      setWebhookError((error as Error).message || 'Failed to save webhook.');
+    } finally {
+      setWebhookSaving(false);
+    }
+  };
+
+  const rotateWebhookSecret = async () => {
+    if (!webhook) return;
+    setWebhookRotating(true);
+    setWebhookError(null);
+    try {
+      const result = await api.rotateWebhookSecret(webhook.id);
+      setWebhook(result.webhook);
+      setWebhookSecret(result.secret);
+    } catch (error) {
+      setWebhookError((error as Error).message || 'Failed to rotate webhook secret.');
+    } finally {
+      setWebhookRotating(false);
+    }
+  };
+
+  const sendWebhookTest = async () => {
+    if (!webhook) return;
+    setWebhookTesting(true);
+    setWebhookError(null);
+    try {
+      await api.testWebhook(webhook.id);
+      const refreshed = await api.getWebhook();
+      setWebhook(refreshed);
+    } catch (error) {
+      setWebhookError((error as Error).message || 'Failed to send webhook test.');
+    } finally {
+      setWebhookTesting(false);
+    }
+  };
+
+  const disableWebhook = async () => {
+    if (!webhook) return;
+    setWebhookDeleting(true);
+    setWebhookError(null);
+    setWebhookSecret(null);
+    try {
+      await api.deleteWebhook(webhook.id);
+      setWebhook(null);
+      setWebhookUrl('');
+      setWebhookEvents(WEBHOOK_EVENT_OPTIONS.map((option) => option.value));
+    } catch (error) {
+      setWebhookError((error as Error).message || 'Failed to disable webhook.');
+    } finally {
+      setWebhookDeleting(false);
+    }
+  };
 
   return (
     <PageContainer>
@@ -453,6 +702,24 @@ function AgentModeSettings() {
             </div>
           </CardContent>
         </Card>
+
+        <WebhookSettingsCard
+          webhook={webhook}
+          webhookUrl={webhookUrl}
+          webhookEvents={webhookEvents}
+          webhookSecret={webhookSecret}
+          isSaving={webhookSaving}
+          isRotating={webhookRotating}
+          isTesting={webhookTesting}
+          isDeleting={webhookDeleting}
+          error={webhookError}
+          onUrlChange={setWebhookUrl}
+          onToggleEvent={toggleWebhookEvent}
+          onSave={saveWebhook}
+          onRotate={rotateWebhookSecret}
+          onTest={sendWebhookTest}
+          onDelete={disableWebhook}
+        />
 
         <Card>
           <CardHeader>

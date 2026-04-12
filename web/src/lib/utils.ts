@@ -53,7 +53,7 @@ export function isValidAgentName(name: string): boolean {
 }
 
 export function isValidHubSlug(name: string): boolean {
-  return /^[a-z0-9_]{2,32}$/i.test(name);
+  return /^[a-z0-9_]{2,32}$/.test(name);
 }
 
 export function isValidApiKey(key: string): boolean {

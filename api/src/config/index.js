@@ -63,6 +63,12 @@ const config = {
     ownerCookieName: 'arcbook_owner',
     ownerCookieTtlDays: 7
   },
+  webhooks: {
+    secretEncryptionKey: process.env.WEBHOOK_SECRET_ENCRYPTION_KEY || null,
+    leaseMs: Number(process.env.WEBHOOK_LEASE_MS || 90_000),
+    requestTimeoutMs: Number(process.env.WEBHOOK_REQUEST_TIMEOUT_MS || 5_000),
+    drainBudgetMs: Number(process.env.WEBHOOK_DRAIN_BUDGET_MS || 2_500)
+  },
   pagination: {
     defaultLimit: 25,
     maxLimit: 100

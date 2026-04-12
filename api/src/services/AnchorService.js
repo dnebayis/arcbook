@@ -1,146 +1,395 @@
 const crypto = require('crypto');
-const { queryOne, query } = require('../config/database');
+const { queryOne, query, transaction } = require('../config/database');
 const config = require('../config');
 const WalletService = require('./WalletService');
 const AgentService = require('./AgentService');
 const PostService = require('./PostService');
 const CommentService = require('./CommentService');
+const { classifyAnchorFailure, getAnchorRetryDelayMs } = require('../utils/anchors');
+
+const TERMINAL_FAILED_STATES = new Set(['FAILED', 'DENIED', 'CANCELLED']);
 
 function hashCanonicalPayload(payload) {
   return `0x${crypto.createHash('sha256').update(JSON.stringify(payload)).digest('hex')}`;
 }
 
+function toRetryTimestamp(attemptCount) {
+  return new Date(Date.now() + getAnchorRetryDelayMs(attemptCount)).toISOString();
+}
+
 class AnchorService {
   static async queuePost(postId) {
-    const existing = await this.ensureRecord('post', postId);
-    setTimeout(() => {
-      this.processPost(postId).catch(async (error) => {
-        await this.fail('post', postId, error.message);
-      });
-    }, 0);
-    return existing;
+    return this.enqueue('post', postId);
   }
 
   static async queueComment(commentId) {
-    const existing = await this.ensureRecord('comment', commentId);
-    setTimeout(() => {
-      this.processComment(commentId).catch(async (error) => {
-        await this.fail('comment', commentId, error.message);
-      });
-    }, 0);
-    return existing;
+    return this.enqueue('comment', commentId);
   }
 
-  static async ensureRecord(contentType, contentId) {
+  static async enqueue(contentType, contentId) {
     const row = await queryOne(
-      `INSERT INTO content_anchors (content_type, content_id, status)
-       VALUES ($1, $2, 'pending')
-       ON CONFLICT (content_type, content_id) DO NOTHING
+      `INSERT INTO content_anchors (content_type, content_id, status, next_retry_at)
+       VALUES ($1, $2, 'pending', NOW())
+       ON CONFLICT (content_type, content_id) DO UPDATE
+       SET status = CASE
+             WHEN content_anchors.status = 'confirmed' THEN content_anchors.status
+             ELSE 'pending'
+           END,
+           next_retry_at = CASE
+             WHEN content_anchors.status = 'confirmed' THEN content_anchors.next_retry_at
+             ELSE NOW()
+           END,
+           leased_until = NULL,
+           updated_at = NOW()
        RETURNING *`,
       [contentType, contentId]
     );
 
-    if (row) return row;
+    const BackgroundWorkService = require('./BackgroundWorkService');
+    BackgroundWorkService.kick(`anchor:${contentType}:${contentId}`);
+    return row;
+  }
 
-    return queryOne(
-      `SELECT *
-       FROM content_anchors
-       WHERE content_type = $1 AND content_id = $2`,
+  static async retryNow(contentType, contentId) {
+    const row = await queryOne(
+      `UPDATE content_anchors
+       SET status = 'pending',
+           leased_until = NULL,
+           next_retry_at = NOW(),
+           last_circle_transaction_id = NULL,
+           updated_at = NOW()
+       WHERE content_type = $1
+         AND content_id = $2
+       RETURNING *`,
       [contentType, contentId]
     );
-  }
 
-  static async processPost(postId) {
-    const post = await PostService.findById(postId);
-    const canonical = await PostService.getCanonical(postId);
-    const contentUri = `${config.app.baseUrl}/content/posts/${postId}`;
-    const contentHash = hashCanonicalPayload(canonical);
-    const agent = await AgentService.getById(post.author_id);
-    await this.executeAnchor({
-      contentType: 'post',
-      contentId: postId,
-      rootId: postId,
-      parentId: 0,
-      contentHash,
-      contentUri,
-      agent
-    });
-  }
-
-  static async processComment(commentId) {
-    const comment = await CommentService.findById(commentId);
-    const canonical = await CommentService.getCanonical(commentId);
-    const contentUri = `${config.app.baseUrl}/content/comments/${commentId}`;
-    const contentHash = hashCanonicalPayload(canonical);
-    const agent = await AgentService.getById(comment.author_id);
-    await this.executeAnchor({
-      contentType: 'comment',
-      contentId: commentId,
-      rootId: Number(comment.post_id),
-      parentId: comment.parent_id ? Number(comment.parent_id) : 0,
-      contentHash,
-      contentUri,
-      agent
-    });
-  }
-
-  static async executeAnchor({ contentType, contentId, rootId, parentId, contentHash, contentUri, agent }) {
-    if (!config.arc.contentRegistryAddress) {
-      throw new Error('ARC_CONTENT_REGISTRY_ADDRESS is not configured');
+    if (!row) {
+      return this.enqueue(contentType, contentId);
     }
 
-    const wallet = await WalletService.ensureWallet(agent);
-    await WalletService.fundWallet(wallet.wallet_address);
+    const BackgroundWorkService = require('./BackgroundWorkService');
+    BackgroundWorkService.kick(`anchor-retry:${contentType}:${contentId}`);
+    return row;
+  }
 
-    const client = WalletService.getClient();
-    const tx = await client.createContractExecutionTransaction({
-      idempotencyKey: crypto.randomUUID(),
-      walletId: wallet.circle_wallet_id,
-      contractAddress: config.arc.contentRegistryAddress,
-      abiFunctionSignature: 'anchorContent(uint8,uint256,uint256,uint256,bytes32,string)',
-      abiParameters: [contentType === 'post' ? 1 : 2, Number(contentId), Number(rootId), Number(parentId), contentHash, contentUri],
-      fee: {
-        type: 'level',
-        config: { feeLevel: 'MEDIUM' }
-      }
+  static async processDueBatch({ limit = 1, timeBudgetMs = 2_500 } = {}) {
+    const startedAt = Date.now();
+    let processed = 0;
+
+    while (processed < limit && Date.now() - startedAt < timeBudgetMs) {
+      const row = await this.claimNextDue();
+      if (!row) break;
+
+      await this.processClaimedRow(row);
+      processed += 1;
+    }
+
+    return processed;
+  }
+
+  static async claimNextDue() {
+    return transaction(async (client) => {
+      const result = await client.query(
+        `WITH due AS (
+           SELECT id
+           FROM content_anchors
+           WHERE status = 'pending'
+             AND next_retry_at <= NOW()
+             AND (leased_until IS NULL OR leased_until < NOW())
+           ORDER BY next_retry_at ASC, created_at ASC
+           LIMIT 1
+           FOR UPDATE SKIP LOCKED
+         )
+         UPDATE content_anchors a
+         SET leased_until = NOW() + ($1 * INTERVAL '1 millisecond'),
+             attempt_count = a.attempt_count + 1,
+             last_attempt_at = NOW(),
+             updated_at = NOW()
+         FROM due
+         WHERE a.id = due.id
+         RETURNING a.*`,
+        [config.webhooks.leaseMs]
+      );
+
+      return result.rows[0] || null;
     });
+  }
 
-    const txId = tx?.data?.transaction?.id || tx?.data?.id;
-    const completed = await WalletService.pollTransaction(txId);
-    const txHash = completed.txHash || completed.transactionHash || null;
+  static async processClaimedRow(row) {
+    try {
+      if (!config.arc.contentRegistryAddress) {
+        await this.markFailed(row, {
+          code: 'blocked_config',
+          message: 'ARC_CONTENT_REGISTRY_ADDRESS is not configured',
+          retryable: false
+        });
+        return;
+      }
 
+      const workItem = await this.buildWorkItem(row);
+      if (!workItem) {
+        await this.markFailed(row, {
+          code: 'missing_content',
+          message: 'The anchored content no longer exists',
+          retryable: false
+        });
+        return;
+      }
+
+      if (row.last_circle_transaction_id) {
+        await this.observeExistingTransaction(row, workItem);
+        return;
+      }
+
+      const wallet = await WalletService.ensureWallet(workItem.agent);
+      try {
+        await WalletService.fundWallet(wallet.wallet_address, { maxAttempts: 8, intervalMs: 1_500 });
+      } catch (error) {
+        await this.handleProcessingFailure(row, error, {
+          walletAddress: wallet.wallet_address,
+          ...workItem
+        });
+        return;
+      }
+
+      const client = WalletService.getClient();
+      const tx = await client.createContractExecutionTransaction({
+        idempotencyKey: crypto.randomUUID(),
+        walletId: wallet.circle_wallet_id,
+        contractAddress: config.arc.contentRegistryAddress,
+        abiFunctionSignature: 'anchorContent(uint8,uint256,uint256,uint256,bytes32,string)',
+        abiParameters: [
+          workItem.contentType === 'post' ? 1 : 2,
+          Number(workItem.contentId),
+          Number(workItem.rootId),
+          Number(workItem.parentId),
+          workItem.contentHash,
+          workItem.contentUri
+        ],
+        fee: {
+          type: 'level',
+          config: { feeLevel: 'MEDIUM' }
+        }
+      });
+
+      const transactionId = tx?.data?.transaction?.id || tx?.data?.id;
+      if (!transactionId) {
+        throw new Error('Circle did not return an anchor transaction id');
+      }
+
+      await query(
+        `UPDATE content_anchors
+         SET root_id = $3,
+             parent_id = $4,
+             wallet_address = $5,
+             content_hash = $6,
+             content_uri = $7,
+             status = 'pending',
+             last_error = NULL,
+             last_error_code = NULL,
+             last_circle_transaction_id = $8,
+             leased_until = NULL,
+             next_retry_at = $9,
+             updated_at = NOW()
+         WHERE content_type = $1
+           AND content_id = $2`,
+        [
+          workItem.contentType,
+          workItem.contentId,
+          workItem.rootId,
+          workItem.parentId,
+          wallet.wallet_address,
+          workItem.contentHash,
+          workItem.contentUri,
+          transactionId,
+          toRetryTimestamp(row.attempt_count)
+        ]
+      );
+    } catch (error) {
+      await this.handleProcessingFailure(row, error);
+    }
+  }
+
+  static async observeExistingTransaction(row, workItem) {
+    try {
+      const transaction = await WalletService.getTransaction(row.last_circle_transaction_id);
+      const state = transaction?.state || null;
+      const txHash = transaction?.txHash || transaction?.transactionHash || null;
+
+      if (state === 'COMPLETE') {
+        await query(
+          `UPDATE content_anchors
+           SET root_id = $3,
+               parent_id = $4,
+               content_hash = $5,
+               content_uri = $6,
+               status = 'confirmed',
+               tx_hash = $7,
+               last_error = NULL,
+               last_error_code = NULL,
+               leased_until = NULL,
+               next_retry_at = NOW(),
+               updated_at = NOW()
+           WHERE content_type = $1
+             AND content_id = $2`,
+          [
+            workItem.contentType,
+            workItem.contentId,
+            workItem.rootId,
+            workItem.parentId,
+            workItem.contentHash,
+            workItem.contentUri,
+            txHash
+          ]
+        );
+        return;
+      }
+
+      if (state && TERMINAL_FAILED_STATES.has(state)) {
+        await this.handleProcessingFailure(row, null, workItem, transaction);
+        return;
+      }
+
+      await query(
+        `UPDATE content_anchors
+         SET leased_until = NULL,
+             next_retry_at = $3,
+             updated_at = NOW()
+         WHERE content_type = $1
+           AND content_id = $2`,
+        [workItem.contentType, workItem.contentId, toRetryTimestamp(row.attempt_count)]
+      );
+    } catch (error) {
+      await this.handleProcessingFailure(row, error, workItem);
+    }
+  }
+
+  static async handleProcessingFailure(row, error = null, workItem = null, transaction = null) {
+    const classification = classifyAnchorFailure(error, transaction);
+    const contentType = workItem?.contentType || row.content_type;
+    const contentId = workItem?.contentId || row.content_id;
+    const walletAddress = workItem?.walletAddress || row.wallet_address || null;
+
+    if (classification.retryable) {
+      await query(
+        `UPDATE content_anchors
+         SET root_id = COALESCE($3, root_id),
+             parent_id = COALESCE($4, parent_id),
+             wallet_address = COALESCE($5, wallet_address),
+             content_hash = COALESCE($6, content_hash),
+             content_uri = COALESCE($7, content_uri),
+             status = 'pending',
+             leased_until = NULL,
+             next_retry_at = $8,
+             last_error = $9,
+             last_error_code = $10,
+             last_circle_transaction_id = CASE
+               WHEN $11 THEN NULL
+               ELSE last_circle_transaction_id
+             END,
+             updated_at = NOW()
+         WHERE content_type = $1
+           AND content_id = $2`,
+        [
+          contentType,
+          contentId,
+          workItem?.rootId ?? null,
+          workItem?.parentId ?? null,
+          walletAddress,
+          workItem?.contentHash ?? null,
+          workItem?.contentUri ?? null,
+          toRetryTimestamp(row.attempt_count),
+          classification.message,
+          classification.code,
+          Boolean(transaction && TERMINAL_FAILED_STATES.has(transaction.state || ''))
+        ]
+      );
+      return;
+    }
+
+    await this.markFailed(row, classification, workItem);
+  }
+
+  static async markFailed(row, classification, workItem = null) {
     await query(
       `UPDATE content_anchors
-       SET root_id = $3,
-           parent_id = $4,
-           wallet_address = $5,
-           content_hash = $6,
-           content_uri = $7,
-           tx_hash = $8,
-           status = 'confirmed',
-           last_error = NULL,
+       SET root_id = COALESCE($3, root_id),
+           parent_id = COALESCE($4, parent_id),
+           wallet_address = COALESCE($5, wallet_address),
+           content_hash = COALESCE($6, content_hash),
+           content_uri = COALESCE($7, content_uri),
+           status = 'failed',
+           leased_until = NULL,
+           last_error = $8,
+           last_error_code = $9,
            updated_at = NOW()
-       WHERE content_type = $1 AND content_id = $2`,
-      [contentType, contentId, rootId, parentId, wallet.wallet_address, contentHash, contentUri, txHash]
+       WHERE content_type = $1
+         AND content_id = $2`,
+      [
+        workItem?.contentType || row.content_type,
+        workItem?.contentId || row.content_id,
+        workItem?.rootId ?? null,
+        workItem?.parentId ?? null,
+        workItem?.walletAddress ?? null,
+        workItem?.contentHash ?? null,
+        workItem?.contentUri ?? null,
+        classification.message,
+        classification.code
+      ]
     );
   }
 
-  static async fail(contentType, contentId, message) {
-    await query(
-      `UPDATE content_anchors
-       SET status = 'failed',
-           last_error = $3,
-           updated_at = NOW()
-       WHERE content_type = $1 AND content_id = $2`,
-      [contentType, contentId, message]
-    );
+  static async buildWorkItem(row) {
+    if (row.content_type === 'post') {
+      const post = await PostService.findById(row.content_id).catch(() => null);
+      if (!post) return null;
+
+      const canonical = await PostService.getCanonical(row.content_id);
+      const contentUri = `${config.app.baseUrl}/content/posts/${row.content_id}`;
+      const contentHash = hashCanonicalPayload(canonical);
+      const agent = await AgentService.getById(post.author_id);
+
+      return {
+        contentType: 'post',
+        contentId: row.content_id,
+        rootId: row.content_id,
+        parentId: 0,
+        contentHash,
+        contentUri,
+        agent
+      };
+    }
+
+    if (row.content_type === 'comment') {
+      const comment = await CommentService.findById(row.content_id).catch(() => null);
+      if (!comment) return null;
+
+      const canonical = await CommentService.getCanonical(row.content_id);
+      const contentUri = `${config.app.baseUrl}/content/comments/${row.content_id}`;
+      const contentHash = hashCanonicalPayload(canonical);
+      const agent = await AgentService.getById(comment.author_id);
+
+      return {
+        contentType: 'comment',
+        contentId: row.content_id,
+        rootId: Number(comment.post_id),
+        parentId: comment.parent_id ? Number(comment.parent_id) : 0,
+        contentHash,
+        contentUri,
+        agent
+      };
+    }
+
+    return null;
   }
 
   static async get(contentType, contentId) {
     return queryOne(
       `SELECT *
        FROM content_anchors
-       WHERE content_type = $1 AND content_id = $2`,
+       WHERE content_type = $1
+         AND content_id = $2`,
       [contentType, contentId]
     );
   }

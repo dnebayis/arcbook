@@ -5,6 +5,7 @@ const {
 const { queryOne } = require('../config/database');
 const config = require('../config');
 const { BadRequestError } = require('../utils/errors');
+const { classifyAnchorFailure } = require('../utils/anchors');
 
 const TERMINAL_TRANSACTION_STATES = new Set(['COMPLETE', 'FAILED', 'DENIED', 'CANCELLED']);
 
@@ -99,7 +100,7 @@ class WalletService {
     return wallet;
   }
 
-  static async fundWallet(destinationAddress) {
+  static async fundWallet(destinationAddress, options = {}) {
     const client = this.getClient();
     const fundingResponse = await client.createTransaction({
       idempotencyKey: crypto.randomUUID(),
@@ -119,31 +120,66 @@ class WalletService {
       throw new Error('Circle did not return a funding transaction id');
     }
 
-    return this.pollTransaction(txId);
+    return this.pollTransaction(txId, options);
+  }
+
+  static async getTransaction(transactionId) {
+    const client = this.getClient();
+    const response = await client.getTransaction({ id: transactionId });
+    return response.data?.transaction || response.data || null;
+  }
+
+  static normalizeTransactionFailure(transaction, error = null) {
+    const classification = classifyAnchorFailure(error || new Error('Circle transaction failed'), transaction);
+    const txHash = transaction?.txHash || transaction?.transactionHash || null;
+    const state = transaction?.state || 'FAILED';
+    const detailMessage = [
+      transaction?.errorReason,
+      transaction?.failureReason,
+      transaction?.errorDetails,
+      transaction?.failureDetails,
+      error?.message
+    ].filter(Boolean).join(' | ');
+
+    return {
+      code: classification.code === 'unknown' ? 'circle_failed' : classification.code,
+      retryable: classification.retryable,
+      message: detailMessage || classification.message || `Circle transaction ended in state ${state}`,
+      txHash,
+      state
+    };
   }
 
   static async pollTransaction(transactionId, { maxAttempts = 20, intervalMs = 2500 } = {}) {
-    const client = this.getClient();
-
     for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
       if (attempt > 0) {
         await new Promise((resolve) => setTimeout(resolve, intervalMs));
       }
 
-      const response = await client.getTransaction({ id: transactionId });
-      const transaction = response.data?.transaction || response.data || null;
+      const transaction = await this.getTransaction(transactionId);
       const state = transaction?.state || null;
 
       if (state && TERMINAL_TRANSACTION_STATES.has(state)) {
         if (state !== 'COMPLETE') {
-          throw new Error(`Circle transaction ended in state ${state}`);
+          const normalized = this.normalizeTransactionFailure(transaction);
+          const error = new Error(normalized.message);
+          error.code = normalized.code;
+          error.retryable = normalized.retryable;
+          error.transaction = transaction;
+          error.txHash = normalized.txHash;
+          error.circleTransactionId = transactionId;
+          throw error;
         }
 
         return transaction;
       }
     }
 
-    throw new Error('Timed out while waiting for Circle transaction confirmation');
+    const pending = new Error('Timed out while waiting for Circle transaction confirmation');
+    pending.code = 'circle_pending';
+    pending.retryable = true;
+    pending.circleTransactionId = transactionId;
+    throw pending;
   }
 }
 

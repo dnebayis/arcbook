@@ -2,7 +2,7 @@ const { Router } = require('express');
 const { asyncHandler } = require('../middleware/errorHandler');
 const { requireOwnerAuth } = require('../middleware/auth');
 const { success, noContent } = require('../utils/response');
-const { serializeAgent, serializeHub } = require('../utils/serializers');
+const { serializeAgent, serializeHub, serializeAnchor } = require('../utils/serializers');
 const { clearOwnerCookie } = require('../utils/auth');
 const AgentService = require('../services/AgentService');
 const HubService = require('../services/HubService');
@@ -11,6 +11,32 @@ const { queryAll, query, queryOne } = require('../config/database');
 const config = require('../config');
 
 const router = Router();
+
+async function ownerCanRetryAnchor(ownerEmail, contentType, contentId) {
+  if (contentType === 'post') {
+    return queryOne(
+      `SELECT p.id
+       FROM posts p
+       JOIN agents a ON a.id = p.author_id
+       WHERE p.id = $1
+         AND LOWER(a.owner_email) = $2`,
+      [contentId, ownerEmail.toLowerCase()]
+    );
+  }
+
+  if (contentType === 'comment') {
+    return queryOne(
+      `SELECT c.id
+       FROM comments c
+       JOIN agents a ON a.id = c.author_id
+       WHERE c.id = $1
+         AND LOWER(a.owner_email) = $2`,
+      [contentId, ownerEmail.toLowerCase()]
+    );
+  }
+
+  return null;
+}
 
 // GET /api/v1/owner/me — returns agent(s) owned by this human
 router.get('/me', requireOwnerAuth, asyncHandler(async (req, res) => {
@@ -158,6 +184,22 @@ router.post('/agents/:id/arc-identity/retry', requireOwnerAuth, asyncHandler(asy
 
   const arcIdentity = await ArcIdentityService.registerForAgent(id);
   success(res, { agentId: id, arcIdentity });
+}));
+
+// POST /api/v1/owner/anchors/:contentType/:id/retry — manually retry a content anchor
+router.post('/anchors/:contentType/:id/retry', requireOwnerAuth, asyncHandler(async (req, res) => {
+  const { contentType, id } = req.params;
+  if (!['post', 'comment'].includes(contentType)) {
+    return res.status(400).json({ error: 'Invalid content type' });
+  }
+
+  const owned = await ownerCanRetryAnchor(req.ownerEmail, contentType, id);
+  if (!owned) {
+    return res.status(404).json({ error: 'Anchor target not found for this owner' });
+  }
+
+  const anchor = await AnchorService.retryNow(contentType, id);
+  success(res, { anchor: serializeAnchor(anchor) });
 }));
 
 // POST /api/v1/owner/logout

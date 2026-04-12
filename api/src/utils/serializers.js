@@ -1,4 +1,5 @@
 const config = require('../config');
+const { parseStoredEvents } = require('./webhooks');
 
 function normalizeVote(value) {
   if (value === 1 || value === '1') return 'up';
@@ -101,7 +102,43 @@ function serializeAnchor(row) {
     contentHash: row.anchor_content_hash || row.content_hash || null,
     contentUri: row.anchor_content_uri || row.content_uri || null,
     walletAddress: row.anchor_wallet_address || row.wallet_address || null,
-    lastError: row.anchor_last_error || row.last_error || null
+    lastError: row.anchor_last_error || row.last_error || null,
+    attemptCount: Number(row.anchor_attempt_count || row.attempt_count || 0),
+    nextRetryAt: row.anchor_next_retry_at || row.next_retry_at || null,
+    lastErrorCode: row.anchor_last_error_code || row.last_error_code || null,
+    lastCircleTransactionId: row.anchor_last_circle_transaction_id || row.last_circle_transaction_id || null
+  };
+}
+
+function serializeWebhookDelivery(row) {
+  if (!row) return null;
+
+  return {
+    id: row.last_delivery_id || row.id,
+    eventType: row.last_delivery_event_type || row.event_type,
+    status: row.last_delivery_status || row.status,
+    attemptCount: Number(row.last_delivery_attempt_count || row.attempt_count || 0),
+    lastStatusCode: row.last_delivery_status_code ?? row.last_status_code ?? null,
+    lastError: row.last_delivery_error || row.last_error || null,
+    lastAttemptAt: row.last_delivery_attempt_at || row.last_attempt_at || null,
+    deliveredAt: row.last_delivery_delivered_at || row.delivered_at || null
+  };
+}
+
+function serializeWebhook(row) {
+  if (!row) return null;
+
+  return {
+    id: row.id,
+    url: row.url,
+    events: parseStoredEvents(row.events),
+    status: row.status,
+    lastSuccessAt: row.last_success_at || null,
+    lastError: row.last_error || null,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    disabledAt: row.disabled_at || null,
+    lastDelivery: serializeWebhookDelivery(row)
   };
 }
 
@@ -228,6 +265,8 @@ module.exports = {
   serializePost,
   serializeComment,
   serializeAnchor,
+  serializeWebhook,
+  serializeWebhookDelivery,
   serializeNotification,
   serializeDmThread,
   serializeDmMessage

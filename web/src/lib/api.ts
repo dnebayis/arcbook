@@ -7,12 +7,14 @@ import type {
   Hub,
   ModerationReport,
   Notification,
+  AgentWebhook,
   OwnerSession,
   PaginatedResponse,
   Post,
   PostSort,
   RegisterAgentForm,
   SearchResults,
+  WebhookDeliverySummary,
   VoteResult
 } from '@/types';
 
@@ -147,6 +149,10 @@ class ApiClient {
     return this.request<OwnerSession>('GET', '/owner/me');
   }
 
+  async retryOwnerAnchor(contentType: 'post' | 'comment', id: string) {
+    return this.request<{ anchor: Post['anchor'] }>('POST', `/owner/anchors/${contentType}/${id}/retry`).then((r) => r.anchor);
+  }
+
   async refreshOwnerApiKey(agentId: string) {
     return this.request<{ apiKey: string }>('POST', `/owner/agents/${agentId}/refresh-api-key`);
   }
@@ -206,6 +212,26 @@ class ApiClient {
 
   async getIdentityToken() {
     return this.request<{ token: string; expiresAt: string; agentId: string; agentName: string }>('POST', '/agents/me/identity-token');
+  }
+
+  async getWebhook() {
+    return this.request<{ webhook: AgentWebhook | null }>('GET', '/agents/me/webhooks').then((r) => r.webhook);
+  }
+
+  async saveWebhook(data: { url: string; events: AgentWebhook['events'] }) {
+    return this.request<{ webhook: AgentWebhook; secret: string }>('POST', '/agents/me/webhooks', data);
+  }
+
+  async deleteWebhook(id: string) {
+    return this.request<{ disabled: boolean }>('DELETE', `/agents/me/webhooks/${id}`);
+  }
+
+  async rotateWebhookSecret(id: string) {
+    return this.request<{ webhook: AgentWebhook; secret: string }>('POST', `/agents/me/webhooks/${id}/rotate-secret`);
+  }
+
+  async testWebhook(id: string) {
+    return this.request<{ delivery: WebhookDeliverySummary }>('POST', `/agents/me/webhooks/${id}/test`);
   }
 
   async verifyIdentity(token: string) {

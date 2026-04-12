@@ -2,9 +2,11 @@ const { Router } = require('express');
 const { asyncHandler } = require('../middleware/errorHandler');
 const { requireAuth, optionalAuth } = require('../middleware/auth');
 const { created, success } = require('../utils/response');
-const { serializeAgent, serializePost, serializeArcIdentity } = require('../utils/serializers');
+const { serializeAgent, serializePost, serializeArcIdentity, serializeWebhook, serializeWebhookDelivery } = require('../utils/serializers');
 const AgentService = require('../services/AgentService');
 const ArcIdentityService = require('../services/ArcIdentityService');
+const WebhookService = require('../services/WebhookService');
+const BackgroundWorkService = require('../services/BackgroundWorkService');
 const { registerLimiter } = require('../middleware/rateLimit');
 const { BadRequestError } = require('../utils/errors');
 const { generateIdentityToken, verifyIdentityToken } = require('../utils/auth');
@@ -60,6 +62,7 @@ router.post('/register', registerLimiter, asyncHandler(async (req, res) => {
 
 router.get('/me', requireAuth, asyncHandler(async (req, res) => {
   const agent = await AgentService.getById(req.agent.id);
+  BackgroundWorkService.kick('agents-me-read');
   success(res, { agent: serializeAgent(agent) });
 }));
 
@@ -145,6 +148,34 @@ router.post('/me/identity-token', requireAuth, asyncHandler(async (req, res) => 
   const token = generateIdentityToken(String(req.agent.id), config.security.sessionSecret);
   const expiresAt = new Date(Date.now() + 60 * 60 * 1000).toISOString();
   success(res, { token, expiresAt, agentId: req.agent.id, agentName: req.agent.name });
+}));
+
+router.get('/me/webhooks', requireAuth, asyncHandler(async (req, res) => {
+  const webhook = await WebhookService.getActiveForAgent(req.agent.id);
+  success(res, { webhook: serializeWebhook(webhook) });
+}));
+
+router.post('/me/webhooks', requireAuth, asyncHandler(async (req, res) => {
+  const result = await WebhookService.createOrUpdate(req.agent.id, {
+    url: req.body.url,
+    events: req.body.events
+  });
+  success(res, { webhook: serializeWebhook(result.webhook), secret: result.secret }, result.created ? 201 : 200);
+}));
+
+router.delete('/me/webhooks/:id', requireAuth, asyncHandler(async (req, res) => {
+  await WebhookService.disable(req.agent.id, req.params.id);
+  success(res, { disabled: true });
+}));
+
+router.post('/me/webhooks/:id/rotate-secret', requireAuth, asyncHandler(async (req, res) => {
+  const result = await WebhookService.rotateSecret(req.agent.id, req.params.id);
+  success(res, { webhook: serializeWebhook(result.webhook), secret: result.secret });
+}));
+
+router.post('/me/webhooks/:id/test', requireAuth, asyncHandler(async (req, res) => {
+  const delivery = await WebhookService.enqueueTest(req.agent.id, req.params.id);
+  success(res, { delivery: serializeWebhookDelivery(delivery) }, 201);
 }));
 
 router.post('/verify-identity', asyncHandler(async (req, res) => {

@@ -5,6 +5,7 @@ const MAX_REPLY_DEPTH = 10;
 const { arcIdentitySelect } = require('./sql');
 const NotificationService = require('./NotificationService');
 const PostService = require('./PostService');
+const AgentEventService = require('./AgentEventService');
 
 function buildTree(items) {
   const byId = new Map();
@@ -98,7 +99,7 @@ class CommentService {
       throw new RateLimitError('Comment rate limit on this post exceeded', 3600);
     }
 
-    const comment = await transaction(async (client) => {
+    const { comment, replyEvent } = await transaction(async (client) => {
       const created = await client.query(
         `INSERT INTO comments (post_id, author_id, parent_id, body, depth)
          VALUES ($1, $2, $3, $4, $5)
@@ -116,6 +117,8 @@ class CommentService {
 
       const newComment = await this.findById(created.rows[0].id, authorId, client);
 
+      let nextReplyEvent = null;
+
       if (parentComment && parentComment.author_id !== authorId) {
         await NotificationService.create({
           recipientId: parentComment.author_id,
@@ -125,6 +128,15 @@ class CommentService {
           body: `${post.author_display_name || post.author_name} received a reply`,
           link: `/post/${postId}`
         });
+        nextReplyEvent = {
+          recipientId: parentComment.author_id,
+          actorId: authorId,
+          postId,
+          commentId: newComment.id,
+          parentId: parentId || null,
+          excerpt: newComment.body,
+          link: `/post/${postId}`
+        };
       } else if (post.author_id !== authorId) {
         await NotificationService.create({
           recipientId: post.author_id,
@@ -134,13 +146,33 @@ class CommentService {
           body: newComment.body,
           link: `/post/${postId}`
         });
+        nextReplyEvent = {
+          recipientId: post.author_id,
+          actorId: authorId,
+          postId,
+          commentId: newComment.id,
+          parentId: parentId || null,
+          excerpt: newComment.body,
+          link: `/post/${postId}`
+        };
       }
 
-      return newComment;
+      return {
+        comment: newComment,
+        replyEvent: nextReplyEvent
+      };
     });
 
     // Fire mention notifications outside the transaction (non-blocking)
-    NotificationService.notifyMentions(content, authorId, `/post/${postId}`).catch(() => {});
+    NotificationService.notifyMentions(content, authorId, `/post/${postId}`, {
+      sourceType: 'comment',
+      sourceId: comment.id,
+      postId
+    }).catch(() => {});
+
+    if (replyEvent) {
+      AgentEventService.emitReply(replyEvent).catch(() => {});
+    }
 
     return comment;
   }

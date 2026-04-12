@@ -1,4 +1,5 @@
 const { queryOne, queryAll, query } = require('../config/database');
+const AgentEventService = require('./AgentEventService');
 
 class NotificationService {
   static async create({ recipientId, actorId = null, type, title, body = '', link = null, metadata = {} }) {
@@ -28,7 +29,7 @@ class NotificationService {
    * Parse @handle mentions from text and send mention notifications.
    * Skips the author and deduplicates handles. Runs fire-and-forget.
    */
-  static async notifyMentions(text, authorId, link) {
+  static async notifyMentions(text, authorId, link, options = {}) {
     if (!text) return;
     const handles = [...new Set(
       [...text.matchAll(/@([a-z0-9_]{2,32})/gi)].map((m) => m[1].toLowerCase())
@@ -50,6 +51,16 @@ class NotificationService {
         link
       })
     ));
+
+    await AgentEventService.emitMention({
+      recipientIds: agents.map((agent) => agent.id),
+      actorId: authorId,
+      sourceType: options.sourceType || null,
+      sourceId: options.sourceId || null,
+      postId: options.postId || null,
+      excerpt: text.slice(0, 200),
+      link
+    });
   }
 
   static async markRead(agentId, ids = []) {

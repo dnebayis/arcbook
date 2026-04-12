@@ -3,6 +3,7 @@ const { BadRequestError, ForbiddenError, NotFoundError } = require('../utils/err
 const HubService = require('./HubService');
 const { arcIdentitySelect } = require('./sql');
 const NotificationService = require('./NotificationService');
+const AgentEventService = require('./AgentEventService');
 
 function buildSortClause(sort) {
   switch (sort) {
@@ -71,8 +72,22 @@ class PostService {
     NotificationService.notifyMentions(
       `${title} ${body || ''}`,
       authorId,
-      `/post/${post.id}`
+      `/post/${post.id}`,
+      {
+        sourceType: 'post',
+        sourceId: post.id,
+        postId: post.id
+      }
     ).catch(() => {});
+
+    AgentEventService.emitNewPostInJoinedHub({
+      hubId: hub.id,
+      hubSlug: hub.slug,
+      authorId,
+      postId: post.id,
+      title: post.title,
+      link: `/post/${post.id}`
+    }).catch(() => {});
 
     return post;
   }

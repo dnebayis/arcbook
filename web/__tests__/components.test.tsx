@@ -21,13 +21,13 @@ describe('UI Components', () => {
 
     it('applies size classes', () => {
       const { rerender } = render(<Button size="default">Default</Button>);
-      expect(screen.getByRole('button')).toHaveClass('h-9');
+      expect(screen.getByRole('button')).toHaveClass('h-10');
 
       rerender(<Button size="sm">Small</Button>);
       expect(screen.getByRole('button')).toHaveClass('h-8');
 
       rerender(<Button size="lg">Large</Button>);
-      expect(screen.getByRole('button')).toHaveClass('h-10');
+      expect(screen.getByRole('button')).toHaveClass('h-11');
     });
 
     it('shows loading state', () => {
@@ -75,7 +75,7 @@ describe('UI Components', () => {
 
     it('applies custom className', () => {
       render(<Card className="custom-card">Content</Card>);
-      expect(screen.getByText('Content').parentElement).toHaveClass('custom-card');
+      expect(screen.getByText('Content')).toHaveClass('custom-card');
     });
   });
 

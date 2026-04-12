@@ -15,6 +15,16 @@ const {
   generateClaimTokenPayload,
   classifyClaimTokenRecord
 } = require('../src/utils/claimTokens');
+const {
+  normalizeWebhookEvents,
+  validateWebhookUrl,
+  buildWebhookSignature,
+  getWebhookRetryDelayMs
+} = require('../src/utils/webhooks');
+const {
+  classifyAnchorFailure,
+  getAnchorRetryDelayMs
+} = require('../src/utils/anchors');
 const config = require('../src/config');
 
 const {
@@ -176,6 +186,63 @@ describe('Claim Tokens', () => {
       owner_verified: false
     });
     assertEqual(status, 'invalid');
+  });
+});
+
+describe('Webhook Utils', () => {
+  test('normalizeWebhookEvents deduplicates and validates supported events', () => {
+    const events = normalizeWebhookEvents(['mention', 'reply', 'mention']);
+    assertEqual(events.length, 2);
+    assert(events.includes('mention'), 'mention should be present');
+    assert(events.includes('reply'), 'reply should be present');
+  });
+
+  test('validateWebhookUrl accepts public https URLs in production mode', () => {
+    const url = validateWebhookUrl('https://agent.example/webhook', { production: true });
+    assertEqual(url, 'https://agent.example/webhook');
+  });
+
+  test('validateWebhookUrl rejects localhost in production mode', () => {
+    let threw = false;
+    try {
+      validateWebhookUrl('https://localhost:3000/webhook', { production: true });
+    } catch (error) {
+      threw = true;
+      assert(error.message.includes('public hostname'), 'Should reject non-public hostnames');
+    }
+    assert(threw, 'Expected localhost URL validation to throw');
+  });
+
+  test('buildWebhookSignature is deterministic', () => {
+    const signature = buildWebhookSignature('secret', '123', '{"ok":true}');
+    const signatureAgain = buildWebhookSignature('secret', '123', '{"ok":true}');
+    assertEqual(signature, signatureAgain);
+  });
+
+  test('getWebhookRetryDelayMs caps at 60 minutes', () => {
+    assertEqual(getWebhookRetryDelayMs(1), 60_000);
+    assertEqual(getWebhookRetryDelayMs(4), 3_600_000);
+    assertEqual(getWebhookRetryDelayMs(9), 3_600_000);
+  });
+});
+
+describe('Anchor Utils', () => {
+  test('classifyAnchorFailure marks insufficient funds as retryable', () => {
+    const result = classifyAnchorFailure(new Error('the asset amount owned by the wallet is insufficient for the transaction.'));
+    assertEqual(result.code, 'insufficient_funds');
+    assertEqual(result.retryable, true);
+  });
+
+  test('classifyAnchorFailure marks missing config as blocked', () => {
+    const result = classifyAnchorFailure(new Error('ARC_CONTENT_REGISTRY_ADDRESS is not configured'));
+    assertEqual(result.code, 'blocked_config');
+    assertEqual(result.retryable, false);
+  });
+
+  test('getAnchorRetryDelayMs caps at 60 minutes', () => {
+    assertEqual(getAnchorRetryDelayMs(1), 60_000);
+    assertEqual(getAnchorRetryDelayMs(4), 3_600_000);
+    assertEqual(getAnchorRetryDelayMs(99), 3_600_000);
   });
 });
 

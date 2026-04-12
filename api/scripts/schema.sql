@@ -88,6 +88,49 @@ CREATE TABLE IF NOT EXISTS agent_wallets (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+CREATE TABLE IF NOT EXISTS agent_webhooks (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  agent_id UUID NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
+  url TEXT NOT NULL,
+  encrypted_secret TEXT NOT NULL,
+  events JSONB NOT NULL DEFAULT '[]'::jsonb,
+  status VARCHAR(20) NOT NULL DEFAULT 'active',
+  failure_streak INTEGER NOT NULL DEFAULT 0,
+  last_success_at TIMESTAMPTZ,
+  last_error TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  disabled_at TIMESTAMPTZ
+);
+
+CREATE INDEX IF NOT EXISTS idx_agent_webhooks_agent ON agent_webhooks(agent_id, created_at DESC);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_webhooks_one_active
+  ON agent_webhooks(agent_id)
+  WHERE status = 'active' AND disabled_at IS NULL;
+
+CREATE TABLE IF NOT EXISTS agent_webhook_deliveries (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  webhook_id UUID NOT NULL REFERENCES agent_webhooks(id) ON DELETE CASCADE,
+  recipient_agent_id UUID NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
+  event_type VARCHAR(64) NOT NULL,
+  payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+  idempotency_key VARCHAR(128) NOT NULL UNIQUE,
+  status VARCHAR(20) NOT NULL DEFAULT 'pending',
+  attempt_count INTEGER NOT NULL DEFAULT 0,
+  next_attempt_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  last_attempt_at TIMESTAMPTZ,
+  leased_until TIMESTAMPTZ,
+  last_status_code INTEGER,
+  last_error TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  delivered_at TIMESTAMPTZ
+);
+
+CREATE INDEX IF NOT EXISTS idx_agent_webhook_deliveries_webhook
+  ON agent_webhook_deliveries(webhook_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_agent_webhook_deliveries_due
+  ON agent_webhook_deliveries(status, next_attempt_at, leased_until);
+
 CREATE TABLE IF NOT EXISTS agent_arc_identities (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   agent_id UUID NOT NULL UNIQUE REFERENCES agents(id) ON DELETE CASCADE,
@@ -211,11 +254,42 @@ CREATE TABLE IF NOT EXISTS content_anchors (
   content_uri TEXT,
   tx_hash VARCHAR(80),
   status VARCHAR(20) NOT NULL DEFAULT 'pending',
+  attempt_count INTEGER NOT NULL DEFAULT 0,
+  last_attempt_at TIMESTAMPTZ,
+  next_retry_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  leased_until TIMESTAMPTZ,
+  last_error_code VARCHAR(64),
+  last_circle_transaction_id VARCHAR(128),
   last_error TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   UNIQUE (content_type, content_id)
 );
+
+ALTER TABLE content_anchors
+  ADD COLUMN IF NOT EXISTS attempt_count INTEGER NOT NULL DEFAULT 0;
+
+ALTER TABLE content_anchors
+  ADD COLUMN IF NOT EXISTS last_attempt_at TIMESTAMPTZ;
+
+ALTER TABLE content_anchors
+  ADD COLUMN IF NOT EXISTS next_retry_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+
+ALTER TABLE content_anchors
+  ADD COLUMN IF NOT EXISTS leased_until TIMESTAMPTZ;
+
+ALTER TABLE content_anchors
+  ADD COLUMN IF NOT EXISTS last_error_code VARCHAR(64);
+
+ALTER TABLE content_anchors
+  ADD COLUMN IF NOT EXISTS last_circle_transaction_id VARCHAR(128);
+
+UPDATE content_anchors
+SET next_retry_at = COALESCE(next_retry_at, NOW())
+WHERE next_retry_at IS NULL;
+
+CREATE INDEX IF NOT EXISTS idx_content_anchors_due
+  ON content_anchors(status, next_retry_at, leased_until);
 
 CREATE TABLE IF NOT EXISTS notifications (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
