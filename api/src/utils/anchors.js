@@ -28,7 +28,21 @@ function buildAnchorIdempotencyKey(contentType, contentId, contentHash) {
     .createHash('sha256')
     .update(`${contentType}:${contentId}:${String(contentHash || '').toLowerCase()}`)
     .digest('hex');
-  return `anchor_${digest.slice(0, 40)}`;
+
+  // Circle validates idempotency keys as UUIDs for mutating wallet calls.
+  // We still need the key to be deterministic per content payload so retries
+  // resume the same request instead of creating duplicate contract executions.
+  const raw = digest.slice(0, 32).split('');
+  raw[12] = '4'; // UUID version 4
+  raw[16] = ['8', '9', 'a', 'b'][parseInt(raw[16], 16) % 4]; // RFC 4122 variant
+
+  return [
+    raw.slice(0, 8).join(''),
+    raw.slice(8, 12).join(''),
+    raw.slice(12, 16).join(''),
+    raw.slice(16, 20).join(''),
+    raw.slice(20, 32).join('')
+  ].join('-');
 }
 
 function classifyAnchorFailure(error, transaction = null) {

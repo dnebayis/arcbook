@@ -240,8 +240,8 @@ describe('Anchor Utils', () => {
     const changed = buildAnchorIdempotencyKey('post', 43, '0xabc123');
 
     assertEqual(first, second);
-    assert(first.startsWith('anchor_'), 'Key should use stable anchor prefix');
-    assertEqual(first.length, 47, 'Key should remain short enough for provider idempotency limits');
+    assert(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(first), 'Key should be a UUID v4 string');
+    assertEqual(first.length, 36, 'Key should match UUID length');
     assert(first !== changed, 'Different content should produce a different idempotency key');
   });
 
