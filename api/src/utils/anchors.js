@@ -45,6 +45,27 @@ function buildAnchorIdempotencyKey(contentType, contentId, contentHash) {
   ].join('-');
 }
 
+function generateAnchorLocalId() {
+  let value = 0n;
+  while (value === 0n) {
+    value = BigInt(`0x${crypto.randomBytes(16).toString('hex')}`);
+  }
+  return value.toString(10);
+}
+
+function resolveChainAnchorId(anchorLocalId, fallbackId) {
+  if (anchorLocalId !== null && anchorLocalId !== undefined && anchorLocalId !== '') {
+    return String(anchorLocalId);
+  }
+  return String(fallbackId);
+}
+
+function isAnchorLocalIdCollision(error) {
+  if (!error || error.code !== '23505') return false;
+  const detail = [error.constraint, error.message, error.detail].filter(Boolean).join(' | ').toLowerCase();
+  return detail.includes('anchor_local_id');
+}
+
 function classifyAnchorFailure(error, transaction = null) {
   const combined = combineErrorDetails(error, transaction);
   const normalized = combined.toLowerCase();
@@ -145,6 +166,9 @@ function classifyAnchorFailure(error, transaction = null) {
 
 module.exports = {
   buildAnchorIdempotencyKey,
+  generateAnchorLocalId,
+  resolveChainAnchorId,
+  isAnchorLocalIdCollision,
   getAnchorRetryDelayMs,
   classifyAnchorFailure
 };

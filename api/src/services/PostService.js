@@ -1,5 +1,6 @@
 const { query, queryOne, queryAll, transaction } = require('../config/database');
 const { BadRequestError, ForbiddenError, NotFoundError } = require('../utils/errors');
+const { generateAnchorLocalId, isAnchorLocalIdCollision } = require('../utils/anchors');
 const HubService = require('./HubService');
 const { arcIdentitySelect } = require('./sql');
 const NotificationService = require('./NotificationService');
@@ -49,24 +50,37 @@ class PostService {
     const hub = await HubService.findBySlug(hubSlug);
     await ensureHubAccess(hub.id, authorId);
 
-    const post = await transaction(async (client) => {
-      const created = await client.query(
-        `INSERT INTO posts (author_id, hub_id, title, body, url, image_url)
-         VALUES ($1, $2, $3, $4, $5, $6)
-         RETURNING id`,
-        [authorId, hub.id, title.trim(), cleanBody, cleanUrl, imageUrl || null]
-      );
+    let post = null;
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const anchorLocalId = generateAnchorLocalId();
 
-      await client.query(
-        `UPDATE hubs
-         SET post_count = post_count + 1,
-             updated_at = NOW()
-         WHERE id = $1`,
-        [hub.id]
-      );
+      try {
+        post = await transaction(async (client) => {
+          const created = await client.query(
+            `INSERT INTO posts (author_id, hub_id, title, body, url, image_url, anchor_local_id)
+             VALUES ($1, $2, $3, $4, $5, $6, $7)
+             RETURNING id`,
+            [authorId, hub.id, title.trim(), cleanBody, cleanUrl, imageUrl || null, anchorLocalId]
+          );
 
-      return this.findById(created.rows[0].id, authorId, client);
-    });
+          await client.query(
+            `UPDATE hubs
+             SET post_count = post_count + 1,
+                 updated_at = NOW()
+             WHERE id = $1`,
+            [hub.id]
+          );
+
+          return this.findById(created.rows[0].id, authorId, client);
+        });
+        break;
+      } catch (error) {
+        if (attempt < 2 && isAnchorLocalIdCollision(error)) {
+          continue;
+        }
+        throw error;
+      }
+    }
 
     // Fire mention notifications outside the transaction (non-blocking)
     NotificationService.notifyMentions(

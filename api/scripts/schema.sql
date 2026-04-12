@@ -190,6 +190,7 @@ CREATE TABLE IF NOT EXISTS posts (
   id BIGSERIAL PRIMARY KEY,
   author_id UUID NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
   hub_id BIGINT NOT NULL REFERENCES hubs(id) ON DELETE CASCADE,
+  anchor_local_id VARCHAR(78),
   title VARCHAR(300) NOT NULL,
   body TEXT,
   url TEXT,
@@ -216,6 +217,7 @@ CREATE TABLE IF NOT EXISTS comments (
   post_id BIGINT NOT NULL REFERENCES posts(id) ON DELETE CASCADE,
   author_id UUID NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
   parent_id BIGINT REFERENCES comments(id) ON DELETE CASCADE,
+  anchor_local_id VARCHAR(78),
   body TEXT NOT NULL,
   score INTEGER NOT NULL DEFAULT 0,
   upvotes INTEGER NOT NULL DEFAULT 0,
@@ -249,6 +251,9 @@ CREATE TABLE IF NOT EXISTS content_anchors (
   content_id BIGINT NOT NULL,
   root_id BIGINT NOT NULL DEFAULT 0,
   parent_id BIGINT NOT NULL DEFAULT 0,
+  chain_local_id VARCHAR(78),
+  chain_root_id VARCHAR(78),
+  chain_parent_id VARCHAR(78),
   wallet_address VARCHAR(66),
   content_hash VARCHAR(66),
   content_uri TEXT,
@@ -284,12 +289,35 @@ ALTER TABLE content_anchors
 ALTER TABLE content_anchors
   ADD COLUMN IF NOT EXISTS last_circle_transaction_id VARCHAR(128);
 
+ALTER TABLE posts
+  ADD COLUMN IF NOT EXISTS anchor_local_id VARCHAR(78);
+
+ALTER TABLE comments
+  ADD COLUMN IF NOT EXISTS anchor_local_id VARCHAR(78);
+
+ALTER TABLE content_anchors
+  ADD COLUMN IF NOT EXISTS chain_local_id VARCHAR(78);
+
+ALTER TABLE content_anchors
+  ADD COLUMN IF NOT EXISTS chain_root_id VARCHAR(78);
+
+ALTER TABLE content_anchors
+  ADD COLUMN IF NOT EXISTS chain_parent_id VARCHAR(78);
+
 UPDATE content_anchors
 SET next_retry_at = COALESCE(next_retry_at, NOW())
 WHERE next_retry_at IS NULL;
 
 CREATE INDEX IF NOT EXISTS idx_content_anchors_due
   ON content_anchors(status, next_retry_at, leased_until);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_posts_anchor_local_id
+  ON posts(anchor_local_id)
+  WHERE anchor_local_id IS NOT NULL;
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_comments_anchor_local_id
+  ON comments(anchor_local_id)
+  WHERE anchor_local_id IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS notifications (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),

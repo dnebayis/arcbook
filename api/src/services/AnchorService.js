@@ -5,7 +5,12 @@ const WalletService = require('./WalletService');
 const AgentService = require('./AgentService');
 const PostService = require('./PostService');
 const CommentService = require('./CommentService');
-const { buildAnchorIdempotencyKey, classifyAnchorFailure, getAnchorRetryDelayMs } = require('../utils/anchors');
+const {
+  buildAnchorIdempotencyKey,
+  classifyAnchorFailure,
+  getAnchorRetryDelayMs,
+  resolveChainAnchorId
+} = require('../utils/anchors');
 
 const TERMINAL_FAILED_STATES = new Set(['FAILED', 'DENIED', 'CANCELLED']);
 
@@ -157,7 +162,7 @@ class AnchorService {
       const tx = await client.createContractExecutionTransaction({
         idempotencyKey: buildAnchorIdempotencyKey(
           workItem.contentType,
-          workItem.contentId,
+          workItem.chainLocalId,
           workItem.contentHash
         ),
         walletId: wallet.circle_wallet_id,
@@ -165,9 +170,9 @@ class AnchorService {
         abiFunctionSignature: 'anchorContent(uint8,uint256,uint256,uint256,bytes32,string)',
         abiParameters: [
           workItem.contentType === 'post' ? 1 : 2,
-          Number(workItem.contentId),
-          Number(workItem.rootId),
-          Number(workItem.parentId),
+          workItem.chainLocalId,
+          workItem.chainRootId,
+          workItem.chainParentId,
           workItem.contentHash,
           workItem.contentUri
         ],
@@ -195,6 +200,9 @@ class AnchorService {
              last_circle_transaction_id = $8,
              leased_until = NULL,
              next_retry_at = $9,
+             chain_local_id = $10,
+             chain_root_id = $11,
+             chain_parent_id = $12,
              updated_at = NOW()
          WHERE content_type = $1
            AND content_id = $2`,
@@ -207,11 +215,14 @@ class AnchorService {
           workItem.contentHash,
           workItem.contentUri,
           transactionId,
-          toRetryTimestamp(row.attempt_count)
+          toRetryTimestamp(row.attempt_count),
+          workItem.chainLocalId,
+          workItem.chainRootId,
+          workItem.chainParentId
         ]
       );
       console.info(
-        `[Anchor] submitted contentType=${workItem.contentType} contentId=${workItem.contentId} attempt=${row.attempt_count} txId=${transactionId}`
+        `[Anchor] submitted contentType=${workItem.contentType} contentId=${workItem.contentId} chainLocalId=${workItem.chainLocalId} attempt=${row.attempt_count} txId=${transactionId}`
       );
     } catch (error) {
       await this.handleProcessingFailure(row, error);
@@ -237,6 +248,9 @@ class AnchorService {
                last_error_code = NULL,
                leased_until = NULL,
                next_retry_at = NOW(),
+               chain_local_id = $8,
+               chain_root_id = $9,
+               chain_parent_id = $10,
                updated_at = NOW()
            WHERE content_type = $1
              AND content_id = $2`,
@@ -247,11 +261,14 @@ class AnchorService {
             workItem.parentId,
             workItem.contentHash,
             workItem.contentUri,
-            txHash
+            txHash,
+            workItem.chainLocalId,
+            workItem.chainRootId,
+            workItem.chainParentId
           ]
         );
         console.info(
-          `[Anchor] confirmed contentType=${workItem.contentType} contentId=${workItem.contentId} attempt=${row.attempt_count} txHash=${txHash || 'none'}`
+          `[Anchor] confirmed contentType=${workItem.contentType} contentId=${workItem.contentId} chainLocalId=${workItem.chainLocalId} attempt=${row.attempt_count} txHash=${txHash || 'none'}`
         );
         return;
       }
@@ -307,8 +324,11 @@ class AnchorService {
              next_retry_at = $8,
              last_error = $9,
              last_error_code = $10,
+             chain_local_id = COALESCE($11, chain_local_id),
+             chain_root_id = COALESCE($12, chain_root_id),
+             chain_parent_id = COALESCE($13, chain_parent_id),
              last_circle_transaction_id = CASE
-               WHEN $11 THEN NULL
+               WHEN $14 THEN NULL
                ELSE last_circle_transaction_id
              END,
              updated_at = NOW()
@@ -325,6 +345,9 @@ class AnchorService {
           toRetryTimestamp(row.attempt_count),
           classification.message,
           classification.code,
+          workItem?.chainLocalId ?? null,
+          workItem?.chainRootId ?? null,
+          workItem?.chainParentId ?? null,
           Boolean(transaction && TERMINAL_FAILED_STATES.has(transaction.state || ''))
         ]
       );
@@ -339,7 +362,7 @@ class AnchorService {
 
   static async reconcileAlreadyAnchored(row, workItem) {
     const contentTypeCode = workItem.contentType === 'post' ? 1 : 2;
-    const record = await WalletService.getContentAnchorRecord(contentTypeCode, workItem.contentId).catch(() => null);
+    const record = await WalletService.getContentAnchorRecord(contentTypeCode, workItem.chainLocalId).catch(() => null);
     if (!record) {
       return false;
     }
@@ -347,7 +370,7 @@ class AnchorService {
     if (record.contentHash !== String(workItem.contentHash || '').toLowerCase()) {
       await this.markFailed(row, {
         code: 'anchor_conflict',
-        message: 'This content id is already anchored on-chain with a different content hash',
+        message: 'This content is already anchored on-chain with a different content hash',
         retryable: false
       }, {
         ...workItem,
@@ -369,6 +392,9 @@ class AnchorService {
            last_error_code = NULL,
            last_circle_transaction_id = NULL,
            next_retry_at = NOW(),
+           chain_local_id = $8,
+           chain_root_id = $9,
+           chain_parent_id = $10,
            updated_at = NOW()
        WHERE content_type = $1
          AND content_id = $2`,
@@ -379,7 +405,10 @@ class AnchorService {
         workItem.parentId,
         record.author,
         workItem.contentHash,
-        workItem.contentUri
+        workItem.contentUri,
+        workItem.chainLocalId,
+        workItem.chainRootId,
+        workItem.chainParentId
       ]
     );
 
@@ -398,6 +427,9 @@ class AnchorService {
            leased_until = NULL,
            last_error = $8,
            last_error_code = $9,
+           chain_local_id = COALESCE($10, chain_local_id),
+           chain_root_id = COALESCE($11, chain_root_id),
+           chain_parent_id = COALESCE($12, chain_parent_id),
            updated_at = NOW()
        WHERE content_type = $1
          AND content_id = $2`,
@@ -410,7 +442,10 @@ class AnchorService {
         workItem?.contentHash ?? null,
         workItem?.contentUri ?? null,
         classification.message,
-        classification.code
+        classification.code,
+        workItem?.chainLocalId ?? null,
+        workItem?.chainRootId ?? null,
+        workItem?.chainParentId ?? null
       ]
     );
     console.warn(
@@ -433,6 +468,9 @@ class AnchorService {
         contentId: row.content_id,
         rootId: row.content_id,
         parentId: 0,
+        chainLocalId: resolveChainAnchorId(post.anchor_local_id, row.content_id),
+        chainRootId: resolveChainAnchorId(post.anchor_local_id, row.content_id),
+        chainParentId: '0',
         contentHash,
         contentUri,
         agent
@@ -447,12 +485,34 @@ class AnchorService {
       const contentUri = `${config.app.baseUrl}/content/comments/${row.content_id}`;
       const contentHash = hashCanonicalPayload(canonical);
       const agent = await AgentService.getById(comment.author_id);
+      const rootPost = await queryOne(
+        `SELECT id, anchor_local_id
+         FROM posts
+         WHERE id = $1`,
+        [comment.post_id]
+      );
+      if (!rootPost) return null;
+
+      let parentComment = null;
+      if (comment.parent_id) {
+        parentComment = await queryOne(
+          `SELECT id, anchor_local_id
+           FROM comments
+           WHERE id = $1`,
+          [comment.parent_id]
+        );
+      }
 
       return {
         contentType: 'comment',
         contentId: row.content_id,
         rootId: Number(comment.post_id),
         parentId: comment.parent_id ? Number(comment.parent_id) : 0,
+        chainLocalId: resolveChainAnchorId(comment.anchor_local_id, row.content_id),
+        chainRootId: resolveChainAnchorId(rootPost.anchor_local_id, comment.post_id),
+        chainParentId: parentComment
+          ? resolveChainAnchorId(parentComment.anchor_local_id, parentComment.id)
+          : '0',
         contentHash,
         contentUri,
         agent

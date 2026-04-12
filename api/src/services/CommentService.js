@@ -1,5 +1,6 @@
 const { query, queryOne, queryAll, transaction } = require('../config/database');
 const { BadRequestError, ForbiddenError, NotFoundError, RateLimitError } = require('../utils/errors');
+const { generateAnchorLocalId, isAnchorLocalIdCollision } = require('../utils/anchors');
 
 const MAX_REPLY_DEPTH = 10;
 const { arcIdentitySelect } = require('./sql');
@@ -99,69 +100,84 @@ class CommentService {
       throw new RateLimitError('Comment rate limit on this post exceeded', 3600);
     }
 
-    const { comment, replyEvent } = await transaction(async (client) => {
-      const created = await client.query(
-        `INSERT INTO comments (post_id, author_id, parent_id, body, depth)
-         VALUES ($1, $2, $3, $4, $5)
-         RETURNING id`,
-        [postId, authorId, parentId || null, content.trim(), depth]
-      );
+    let createdPayload = null;
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const anchorLocalId = generateAnchorLocalId();
 
-      await client.query(
-        `UPDATE posts
-         SET comment_count = comment_count + 1,
-             updated_at = NOW()
-         WHERE id = $1`,
-        [postId]
-      );
+      try {
+        createdPayload = await transaction(async (client) => {
+          const created = await client.query(
+            `INSERT INTO comments (post_id, author_id, parent_id, body, depth, anchor_local_id)
+             VALUES ($1, $2, $3, $4, $5, $6)
+             RETURNING id`,
+            [postId, authorId, parentId || null, content.trim(), depth, anchorLocalId]
+          );
 
-      const newComment = await this.findById(created.rows[0].id, authorId, client);
+          await client.query(
+            `UPDATE posts
+             SET comment_count = comment_count + 1,
+                 updated_at = NOW()
+             WHERE id = $1`,
+            [postId]
+          );
 
-      let nextReplyEvent = null;
+          const newComment = await this.findById(created.rows[0].id, authorId, client);
 
-      if (parentComment && parentComment.author_id !== authorId) {
-        await NotificationService.create({
-          recipientId: parentComment.author_id,
-          actorId: authorId,
-          type: 'reply',
-          title: 'New reply',
-          body: `${post.author_display_name || post.author_name} received a reply`,
-          link: `/post/${postId}`
+          let nextReplyEvent = null;
+
+          if (parentComment && parentComment.author_id !== authorId) {
+            await NotificationService.create({
+              recipientId: parentComment.author_id,
+              actorId: authorId,
+              type: 'reply',
+              title: 'New reply',
+              body: `${post.author_display_name || post.author_name} received a reply`,
+              link: `/post/${postId}`
+            });
+            nextReplyEvent = {
+              recipientId: parentComment.author_id,
+              actorId: authorId,
+              postId,
+              commentId: newComment.id,
+              parentId: parentId || null,
+              excerpt: newComment.body,
+              link: `/post/${postId}`
+            };
+          } else if (post.author_id !== authorId) {
+            await NotificationService.create({
+              recipientId: post.author_id,
+              actorId: authorId,
+              type: 'reply',
+              title: 'New comment on your post',
+              body: newComment.body,
+              link: `/post/${postId}`
+            });
+            nextReplyEvent = {
+              recipientId: post.author_id,
+              actorId: authorId,
+              postId,
+              commentId: newComment.id,
+              parentId: parentId || null,
+              excerpt: newComment.body,
+              link: `/post/${postId}`
+            };
+          }
+
+          return {
+            comment: newComment,
+            replyEvent: nextReplyEvent
+          };
         });
-        nextReplyEvent = {
-          recipientId: parentComment.author_id,
-          actorId: authorId,
-          postId,
-          commentId: newComment.id,
-          parentId: parentId || null,
-          excerpt: newComment.body,
-          link: `/post/${postId}`
-        };
-      } else if (post.author_id !== authorId) {
-        await NotificationService.create({
-          recipientId: post.author_id,
-          actorId: authorId,
-          type: 'reply',
-          title: 'New comment on your post',
-          body: newComment.body,
-          link: `/post/${postId}`
-        });
-        nextReplyEvent = {
-          recipientId: post.author_id,
-          actorId: authorId,
-          postId,
-          commentId: newComment.id,
-          parentId: parentId || null,
-          excerpt: newComment.body,
-          link: `/post/${postId}`
-        };
+        break;
+      } catch (error) {
+        if (attempt < 2 && isAnchorLocalIdCollision(error)) {
+          continue;
+        }
+        throw error;
       }
+    }
 
-      return {
-        comment: newComment,
-        replyEvent: nextReplyEvent
-      };
-    });
+    const { comment, replyEvent } = createdPayload;
 
     // Fire mention notifications outside the transaction (non-blocking)
     NotificationService.notifyMentions(content, authorId, `/post/${postId}`, {

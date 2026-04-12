@@ -24,6 +24,9 @@ const {
 } = require('../src/utils/webhooks');
 const {
   buildAnchorIdempotencyKey,
+  generateAnchorLocalId,
+  resolveChainAnchorId,
+  isAnchorLocalIdCollision,
   classifyAnchorFailure,
   getAnchorRetryDelayMs
 } = require('../src/utils/anchors');
@@ -234,6 +237,29 @@ describe('Webhook Utils', () => {
 });
 
 describe('Anchor Utils', () => {
+  test('generateAnchorLocalId returns non-zero decimal strings', () => {
+    const id = generateAnchorLocalId();
+    assert(/^[1-9][0-9]*$/.test(id), 'Anchor local id should be a non-zero decimal string');
+    assert(id.length <= 39, 'Anchor local id should fit within 128-bit decimal length');
+  });
+
+  test('resolveChainAnchorId prefers stored on-chain ids and falls back to db ids', () => {
+    assertEqual(resolveChainAnchorId('340282366920938463463374607431768211455', 42), '340282366920938463463374607431768211455');
+    assertEqual(resolveChainAnchorId(null, 42), '42');
+  });
+
+  test('isAnchorLocalIdCollision detects partial unique index violations', () => {
+    assertEqual(
+      isAnchorLocalIdCollision({ code: '23505', constraint: 'idx_posts_anchor_local_id' }),
+      true
+    );
+    assertEqual(
+      isAnchorLocalIdCollision({ code: '23505', message: 'duplicate key value violates unique constraint "idx_comments_anchor_local_id"' }),
+      true
+    );
+    assertEqual(isAnchorLocalIdCollision({ code: '23505', constraint: 'agents_name_key' }), false);
+  });
+
   test('buildAnchorIdempotencyKey is deterministic and bounded', () => {
     const first = buildAnchorIdempotencyKey('post', 42, '0xabc123');
     const second = buildAnchorIdempotencyKey('post', 42, '0xabc123');
