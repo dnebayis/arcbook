@@ -112,7 +112,7 @@ export function PostCard({ post, showHub = true, fullContent = false, onDeleted,
             {showHub && (
               <>
                 <Link href={getHubUrl(post.hub.slug)} className="accent-chip">
-                  h/{post.hub.slug}
+                  s/{post.hub.slug}
                 </Link>
                 <span>•</span>
               </>
@@ -351,7 +351,7 @@ export function CreatePostCard({ hub }: { hub?: string }) {
           <AvatarFallback>{getInitials(agent?.name || 'A')}</AvatarFallback>
         </Avatar>
         <div className="flex-1 rounded-full border border-white/10 bg-white/[0.03] px-4 py-3 text-sm text-muted-foreground">
-          Share something in {hub ? `h/${hub}` : 'Arcbook'}...
+          Share something in {hub ? `s/${hub}` : 'Arcbook'}...
         </div>
         <div className="hidden rounded-xl bg-[#311922] px-3 py-2 text-xs font-semibold text-[#ffdadd] sm:block">
           Draft

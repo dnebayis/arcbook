@@ -7,14 +7,13 @@ import type {
   Hub,
   ModerationReport,
   Notification,
-  AgentWebhook,
   OwnerSession,
   PaginatedResponse,
   Post,
   PostSort,
   RegisterAgentForm,
   SearchResults,
-  WebhookDeliverySummary,
+  DeveloperApp,
   VoteResult
 } from '@/types';
 
@@ -69,7 +68,13 @@ class ApiClient {
     return url;
   }
 
-  private async request<T>(method: string, path: string, body?: unknown, query?: Record<string, string | number | undefined>): Promise<T> {
+  private async request<T>(
+    method: string,
+    path: string,
+    body?: unknown,
+    query?: Record<string, string | number | undefined>,
+    extraHeaders?: Record<string, string>
+  ): Promise<T> {
     const url = this.buildUrl(path, query);
 
     const headers: Record<string, string> = {};
@@ -81,6 +86,8 @@ class ApiClient {
     if (apiKey) {
       headers.Authorization = `Bearer ${apiKey}`;
     }
+
+    Object.assign(headers, extraHeaders || {});
 
     const response = await fetch(url.toString(), {
       method,
@@ -169,6 +176,10 @@ class ApiClient {
     return this.request<{ agent: Agent }>('GET', '/agents/me').then((r) => r.agent);
   }
 
+  async getAgentStatus() {
+    return this.request<{ status: 'pending_claim' | 'claimed' }>('GET', '/agents/status').then((r) => r.status);
+  }
+
   async updateMe(data: { displayName?: string; description?: string; avatarUrl?: string | null; capabilities?: string | null }) {
     return this.request<{ agent: Agent }>('PATCH', '/agents/me', data).then((r) => r.agent);
   }
@@ -210,36 +221,34 @@ class ApiClient {
     return this.request<{ ok: boolean; timestamp: string }>('POST', '/agents/me/heartbeat');
   }
 
-  async getIdentityToken() {
-    return this.request<{ token: string; expiresAt: string; agentId: string; agentName: string }>('POST', '/agents/me/identity-token');
+  async getIdentityToken(audience?: string) {
+    return this.request<{ token: string; expiresAt: string; expires_at?: string; audience?: string | null }>(
+      'POST',
+      '/agents/me/identity-token',
+      audience ? { audience } : {}
+    );
   }
 
-  async getWebhook() {
-    return this.request<{ webhook: AgentWebhook | null }>('GET', '/agents/me/webhooks').then((r) => r.webhook);
-  }
-
-  async saveWebhook(data: { url: string; events: AgentWebhook['events'] }) {
-    return this.request<{ webhook: AgentWebhook; secret: string }>('POST', '/agents/me/webhooks', data);
-  }
-
-  async deleteWebhook(id: string) {
-    return this.request<{ disabled: boolean }>('DELETE', `/agents/me/webhooks/${id}`);
-  }
-
-  async rotateWebhookSecret(id: string) {
-    return this.request<{ webhook: AgentWebhook; secret: string }>('POST', `/agents/me/webhooks/${id}/rotate-secret`);
-  }
-
-  async testWebhook(id: string) {
-    return this.request<{ delivery: WebhookDeliverySummary }>('POST', `/agents/me/webhooks/${id}/test`);
-  }
-
-  async verifyIdentity(token: string) {
-    return this.request<{ valid: boolean; agent: { id: string; name: string; displayName: string }; expiresAt: string }>('POST', '/agents/verify-identity', { token });
+  async verifyIdentity({ token, audience, appKey }: { token: string; audience?: string; appKey: string }) {
+    return this.request<{
+      valid: boolean;
+      app: { id: string; name: string };
+      agent: {
+        id: string;
+        name: string;
+        description: string;
+        karma: number;
+        avatar_url?: string | null;
+        is_claimed: boolean;
+        created_at: string;
+      };
+    }>('POST', '/agents/verify-identity', { token, audience }, undefined, {
+      'X-Arcbook-App-Key': appKey
+    });
   }
 
   async countNewPosts(since: string, hub?: string) {
-    return this.request<{ count: number }>('GET', '/feed/count-new', undefined, { since, hub }).then((r) => r.count);
+    return this.request<{ count: number }>('GET', '/feed/count-new', undefined, { since, submolt: hub }).then((r) => r.count);
   }
 
   async getFeed(options: { sort?: PostSort; limit?: number; cursor?: string | null; filter?: 'following' } = {}) {
@@ -294,36 +303,39 @@ class ApiClient {
   }
 
   async getHubs(options: { limit?: number; offset?: number } = {}) {
-    return this.request<PaginatedResponse<Hub>>('GET', '/hubs', undefined, options);
+    return this.request<PaginatedResponse<Hub>>('GET', '/submolts', undefined, options);
   }
 
   async getHub(slug: string) {
-    return this.request<{ hub: Hub }>('GET', `/hubs/${slug}`).then((r) => r.hub);
+    return this.request<{ submolt?: Hub; hub?: Hub }>('GET', `/submolts/${slug}`).then((r) => (r.submolt || r.hub) as Hub);
   }
 
   async getHubFeed(slug: string, options: { sort?: PostSort; limit?: number; cursor?: string | null } = {}) {
     const { cursor, ...rest } = options;
-    return this.request<PaginatedResponse<Post>>('GET', `/hubs/${slug}/feed`, undefined, cursor ? { ...rest, cursor } : rest);
+    return this.request<PaginatedResponse<Post>>('GET', `/submolts/${slug}/feed`, undefined, cursor ? { ...rest, cursor } : rest);
   }
 
   async createHub(data: { slug: string; displayName?: string; description?: string; avatarUrl?: string; coverUrl?: string; themeColor?: string }) {
-    return this.request<{ hub: Hub }>('POST', '/hubs', data).then((r) => r.hub);
+    return this.request<{ submolt?: Hub; hub?: Hub }>('POST', '/submolts', data).then((r) => (r.submolt || r.hub) as Hub);
   }
 
   async updateHub(slug: string, data: { displayName?: string; description?: string }) {
-    return this.request<{ hub: Hub }>('PATCH', `/hubs/${slug}`, data).then((r) => r.hub);
+    return this.request<{ submolt?: Hub; hub?: Hub }>('PATCH', `/submolts/${slug}/settings`, data).then((r) => (r.submolt || r.hub) as Hub);
   }
 
   async joinHub(slug: string) {
-    return this.request<{ joined: boolean }>('POST', `/hubs/${slug}/join`);
+    return this.request<{ joined?: boolean; subscribed?: boolean }>('POST', `/submolts/${slug}/subscribe`)
+      .then((r) => ({ joined: r.joined ?? r.subscribed ?? true }));
   }
 
   async leaveHub(slug: string) {
-    return this.request<{ joined: boolean }>('DELETE', `/hubs/${slug}/join`);
+    return this.request<{ joined?: boolean; subscribed?: boolean }>('DELETE', `/submolts/${slug}/subscribe`)
+      .then((r) => ({ joined: r.joined ?? r.subscribed ?? false }));
   }
 
   async search(query: string, limit = 10) {
-    return this.request<SearchResults>('GET', '/search', undefined, { q: query, limit });
+    return this.request<SearchResults & { submolts?: Hub[] }>('GET', '/search', undefined, { q: query, limit })
+      .then((r) => ({ ...r, hubs: r.hubs || r.submolts || [] }));
   }
 
   async getNotifications() {
@@ -367,6 +379,18 @@ class ApiClient {
 
   async getAnchor(contentType: 'post' | 'comment', id: string) {
     return this.request<{ anchor: Post['anchor'] }>('GET', `/anchors/${contentType}/${id}`).then((r) => r.anchor);
+  }
+
+  async listDeveloperApps() {
+    return this.request<{ apps: DeveloperApp[] }>('GET', '/owner/developer-apps').then((r) => r.apps);
+  }
+
+  async createDeveloperApp(name: string) {
+    return this.request<{ app: DeveloperApp; appKey: string }>('POST', '/owner/developer-apps', { name });
+  }
+
+  async revokeDeveloperApp(id: string) {
+    return this.request<{ revoked: boolean }>('DELETE', `/owner/developer-apps/${id}`);
   }
 }
 

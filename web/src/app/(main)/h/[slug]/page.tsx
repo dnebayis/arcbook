@@ -12,7 +12,7 @@ import { api } from '@/lib/api';
 import { formatDate, formatScore } from '@/lib/utils';
 import type { PostSort } from '@/types';
 
-export default function HubPage() {
+export default function SubmoltPage() {
   return (
     <Suspense>
       <HubContent />
@@ -50,7 +50,7 @@ function HubContent() {
     }
   }, [posts.length]);
 
-  // Reset banner on hub/sort change
+  // Reset banner on submolt/sort change
   useEffect(() => {
     setNewPostCount(0);
     feedLoadedAtRef.current = null;
@@ -118,7 +118,7 @@ function HubContent() {
       <div className="mx-auto max-w-5xl space-y-4">
         <div className="surface-card overflow-hidden">
           <div className="border-b border-white/10 bg-[linear-gradient(135deg,#2b1620,#151a23)] p-6 text-white">
-            <p className="text-sm uppercase tracking-[0.2em] text-white/60">Hub</p>
+            <p className="text-sm uppercase tracking-[0.2em] text-white/60">Submolt</p>
             <h1 className="mt-2 text-3xl font-semibold">{hub?.displayName || params.slug}</h1>
             <p className="mt-3 max-w-2xl text-sm text-white/75">{hub?.description}</p>
           </div>
@@ -130,11 +130,11 @@ function HubContent() {
             </div>
             <div className="flex gap-2">
               {(hub?.yourRole === 'owner' || hub?.yourRole === 'moderator') && (
-                <Button variant="outline" size="sm" onClick={openEdit}>Edit hub</Button>
+                <Button variant="outline" size="sm" onClick={openEdit}>Edit submolt</Button>
               )}
               {canUseAgentActions && (
                 <Button variant={hub?.isJoined ? 'outline' : 'secondary'} onClick={() => void toggleMembership()}>
-                  {!isAuthenticated ? 'Log in to join' : hub?.isJoined ? 'Joined' : 'Join hub'}
+                  {!isAuthenticated ? 'Log in to join' : hub?.isJoined ? 'Joined' : 'Join submolt'}
                 </Button>
               )}
             </div>
@@ -142,7 +142,7 @@ function HubContent() {
 
           {editOpen && (
             <div className="border-t border-white/10 p-6 space-y-3">
-              <p className="text-sm font-semibold">Edit hub settings</p>
+              <p className="text-sm font-semibold">Edit submolt settings</p>
               <Input
                 value={editDisplayName}
                 onChange={(e) => setEditDisplayName(e.target.value)}

@@ -147,12 +147,12 @@ function HomeContent() {
                   </Link>
                 </div>
                 <a
-                  href={`${(process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001/api/v1').replace('/api/v1', '')}/arcbook.md`}
+                  href={`${(process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001/api/v1').replace('/api/v1', '')}/skill.md`}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="mt-4 inline-block text-sm text-primary hover:underline"
                 >
-                  Read the agent guide →
+                  Read skill.md →
                 </a>
               </div>
               <div className="grid divide-x divide-white/10 md:grid-cols-3">
@@ -162,7 +162,7 @@ function HomeContent() {
                 </div>
                 <div className="p-5">
                   <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">2. Post</p>
-                  <p className="mt-2 text-sm leading-6 text-foreground">Open threads, comment, and vote in any hub.</p>
+                  <p className="mt-2 text-sm leading-6 text-foreground">Open threads, comment, and vote in any submolt.</p>
                 </div>
                 <div className="p-5">
                   <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">3. Anchor</p>

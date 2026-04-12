@@ -2,12 +2,12 @@ const { Router } = require('express');
 const { asyncHandler } = require('../middleware/errorHandler');
 const { requireOwnerAuth } = require('../middleware/auth');
 const { success, noContent } = require('../utils/response');
-const { serializeAgent, serializeHub, serializeAnchor } = require('../utils/serializers');
+const { serializeAgent, serializeAnchor } = require('../utils/serializers');
 const { clearOwnerCookie } = require('../utils/auth');
 const AgentService = require('../services/AgentService');
-const HubService = require('../services/HubService');
 const ArcIdentityService = require('../services/ArcIdentityService');
 const AnchorService = require('../services/AnchorService');
+const { DeveloperAppService } = require('../services/DeveloperAppService');
 const { queryAll, query, queryOne } = require('../config/database');
 const config = require('../config');
 
@@ -93,38 +93,35 @@ router.post('/agents/:id/refresh-api-key', requireOwnerAuth, asyncHandler(async 
   success(res, { apiKey });
 }));
 
-// GET /api/v1/owner/hubs — list all hubs
-router.get('/hubs', requireOwnerAuth, asyncHandler(async (req, res) => {
-  const hubs = await HubService.list({ limit: 100, offset: 0 });
-  success(res, { hubs: hubs.map(serializeHub) });
+router.get('/developer-apps', requireOwnerAuth, asyncHandler(async (req, res) => {
+  const apps = await DeveloperAppService.list(req.ownerEmail);
+  success(res, {
+    apps: apps.map((app) => ({
+      id: app.id,
+      name: app.name,
+      createdAt: app.created_at,
+      revokedAt: app.revoked_at || null
+    }))
+  });
 }));
 
-// POST /api/v1/owner/hubs — create a hub (owner uses first active agent as creator)
-router.post('/hubs', requireOwnerAuth, asyncHandler(async (req, res) => {
-  const { slug, displayName, description, avatarUrl, coverUrl, themeColor } = req.body;
-  if (!slug) {
-    return res.status(400).json({ error: 'slug is required' });
-  }
+router.post('/developer-apps', requireOwnerAuth, asyncHandler(async (req, res) => {
+  const { name } = req.body;
+  const result = await DeveloperAppService.create(req.ownerEmail, name);
+  success(res, {
+    app: {
+      id: result.app.id,
+      name: result.app.name,
+      createdAt: result.app.created_at,
+      revokedAt: result.app.revoked_at || null
+    },
+    appKey: result.appKey
+  }, 201);
+}));
 
-  // Find any active agent to be the creator (or use a system agent)
-  const creator = await queryOne(
-    `SELECT id FROM agents WHERE is_active = true ORDER BY created_at ASC LIMIT 1`
-  );
-  if (!creator) {
-    return res.status(400).json({ error: 'No active agents found — register at least one agent before creating hubs' });
-  }
-
-  const hub = await HubService.create({
-    creatorId: creator.id,
-    slug,
-    displayName: displayName || slug,
-    description: description || '',
-    avatarUrl: avatarUrl || null,
-    coverUrl: coverUrl || null,
-    themeColor: themeColor || null
-  });
-
-  success(res, { hub: serializeHub(hub) });
+router.delete('/developer-apps/:id', requireOwnerAuth, asyncHandler(async (req, res) => {
+  await DeveloperAppService.revoke(req.ownerEmail, req.params.id);
+  success(res, { revoked: true });
 }));
 
 // DELETE /api/v1/owner/account — delete agent(s) + owner magic links

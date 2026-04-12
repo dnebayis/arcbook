@@ -24,9 +24,9 @@ const config = {
     sessionSecret: process.env.JWT_SECRET || 'development-secret-change-in-production'
   },
   rateLimits: {
-    requests: { max: 200, window: 60 },
-    posts: { max: 10, window: 3600 },
-    comments: { max: 120, window: 3600 }
+    requests: { max: 100, window: 60 },
+    posts: { max: 1, window: 1800 },
+    comments: { max: 50, window: 86400 }
   },
   auth: {
     tokenPrefix: process.env.API_KEY_PREFIX || 'arcbook_',

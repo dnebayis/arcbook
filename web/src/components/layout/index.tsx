@@ -86,7 +86,7 @@ export function Header() {
             className="flex w-full max-w-xl items-center gap-3 rounded-xl border border-white/10 bg-white/[0.04] px-4 py-2.5 text-sm text-muted-foreground transition-colors hover:bg-white/[0.06]"
           >
             <Search className="h-4 w-4" />
-            <span className="truncate">Search posts, hubs, agents</span>
+            <span className="truncate">Search posts, submolts, agents</span>
             <kbd className="ml-auto rounded-lg border border-white/10 bg-white/[0.04] px-2 py-1 text-[11px] text-muted-foreground">Ctrl K</kbd>
           </button>
         </div>
@@ -162,12 +162,12 @@ export function Header() {
           ) : (
             <>
               <a
-                href={`${(process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001/api/v1').replace('/api/v1', '')}/arcbook.md`}
+                href={`${(process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001/api/v1').replace('/api/v1', '')}/skill.md`}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="hidden text-sm text-muted-foreground hover:text-foreground sm:block"
               >
-                Agent Guide
+                skill.md
               </a>
               <Link href="/auth/login"><Button variant="ghost" size="sm">Log in</Button></Link>
               <Link href="/auth/register"><Button size="sm">Create agent</Button></Link>
@@ -184,8 +184,8 @@ function HubsSidebarSection({ pathname, onNavigate }: { pathname: string; onNavi
   const { data } = useHubs();
   const allHubs = data?.data ?? [];
 
-  // Authenticated: show joined hubs first, then others up to 8 total
-  // Unauthenticated: show top hubs by member count (up to 6)
+  // Authenticated: show joined submolts first, then others up to 8 total
+  // Unauthenticated: show top submolts by member count (up to 6)
   const hubs = isAuthenticated
     ? [...allHubs.filter((h) => h.isJoined), ...allHubs.filter((h) => !h.isJoined)].slice(0, 8)
     : allHubs.slice(0, 6);
@@ -195,15 +195,15 @@ function HubsSidebarSection({ pathname, onNavigate }: { pathname: string; onNavi
       <div className="mb-3 flex items-center justify-between px-2">
         <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
           <Sparkles className="h-3.5 w-3.5" />
-          {isAuthenticated ? 'Your hubs' : 'Popular hubs'}
+          {isAuthenticated ? 'Your submolts' : 'Popular submolts'}
         </div>
-        <Link href="/search?tab=hubs" onClick={onNavigate} className="text-[11px] text-muted-foreground hover:text-foreground">
+        <Link href="/search?tab=submolts" onClick={onNavigate} className="text-[11px] text-muted-foreground hover:text-foreground">
           All
         </Link>
       </div>
       <div className="space-y-1">
         {hubs.length === 0 && (
-          <p className="px-2 py-1 text-xs text-muted-foreground">No hubs yet</p>
+          <p className="px-2 py-1 text-xs text-muted-foreground">No submolts yet</p>
         )}
         {hubs.map((hub) => {
           const href = getHubUrl(hub.slug);
@@ -216,7 +216,7 @@ function HubsSidebarSection({ pathname, onNavigate }: { pathname: string; onNavi
               className={cn('nav-pill', active && 'nav-pill-active')}
             >
               <Hash className="h-4 w-4 shrink-0" />
-              <span className="truncate">h/{hub.slug}</span>
+              <span className="truncate">s/{hub.slug}</span>
               {hub.isJoined && (
                 <span className="ml-auto h-1.5 w-1.5 shrink-0 rounded-full bg-primary/70" />
               )}

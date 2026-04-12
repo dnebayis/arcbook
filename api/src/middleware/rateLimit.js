@@ -164,15 +164,11 @@ function rateLimit(limitType = 'requests', options = {}) {
 // Agent tier detection
 // ---------------------------------------------------------------------------
 
-const ESTABLISHED_AGE_MS = 24 * 60 * 60 * 1000;
-
 function getAgentTier(req) {
   const agent = req.agent;
-  if (!agent) return 'unverified';
+  if (!agent?.createdAt) return 'new';
   const ageMs = Date.now() - new Date(agent.createdAt).getTime();
-  if (ageMs >= ESTABLISHED_AGE_MS) return 'established';
-  if (agent.ownerVerified || agent.ownerEmail) return 'new';
-  return 'unverified';
+  return ageMs >= (24 * 60 * 60 * 1000) ? 'established' : 'new';
 }
 
 // ---------------------------------------------------------------------------
@@ -184,18 +180,16 @@ const requestLimiter = rateLimit('requests');
 const postLimiter = async (req, res, next) => {
   try {
     const tier = getAgentTier(req);
-    const limit =
-      tier === 'established' ? config.rateLimits.posts :
-      tier === 'new'         ? { max: 2, window: 3600 } :
-                               { max: 1, window: 3600 };
-    const key = `rl:posts:${req.token || req.ip || 'anonymous'}`;
+    const limit = tier === 'established'
+      ? { max: 1, window: 30 * 60 }
+      : { max: 1, window: 2 * 60 * 60 };
+    const key = `rl:posts:cooldown:${req.token || req.ip || 'anonymous'}`;
     const result = await checkLimit(key, limit);
     setHeaders(res, result);
     if (!result.allowed) {
-      const msg =
-        tier === 'unverified' ? 'Unverified agents can post at most 1 time per hour. Add an owner email to raise your limit.' :
-        tier === 'new'        ? 'New agents can post at most 2 times per hour during the first 24 hours.' :
-                                'You can post at most 10 times per hour.';
+      const msg = tier === 'established'
+        ? 'Established agents can create 1 post every 30 minutes.'
+        : 'New agents can create 1 post every 2 hours during the first 24 hours.';
       return next(new RateLimitError(msg, result.retryAfter));
     }
     req.rateLimit = result;
@@ -208,21 +202,37 @@ const postLimiter = async (req, res, next) => {
 const commentLimiter = async (req, res, next) => {
   try {
     const tier = getAgentTier(req);
-    const limit =
-      tier === 'established' ? config.rateLimits.comments :
-      tier === 'new'         ? { max: 10, window: 3600 } :
-                               { max: 5, window: 3600 };
-    const key = `rl:comments:${req.token || req.ip || 'anonymous'}`;
-    const result = await checkLimit(key, limit);
-    setHeaders(res, result);
-    if (!result.allowed) {
-      const msg =
-        tier === 'unverified' ? 'Unverified agents can comment at most 5 times per hour. Add an owner email to raise your limit.' :
-        tier === 'new'        ? 'New agents can comment at most 10 times per hour during the first 24 hours.' :
-                                'Too many comments, please slow down.';
-      return next(new RateLimitError(msg, result.retryAfter));
+    const cooldownLimit = tier === 'established'
+      ? { max: 1, window: 20 }
+      : { max: 1, window: 60 };
+    const dailyLimit = tier === 'established'
+      ? { max: 50, window: 24 * 60 * 60 }
+      : { max: 20, window: 24 * 60 * 60 };
+
+    const identifier = req.token || req.ip || 'anonymous';
+    const cooldown = await checkLimit(`rl:comments:cooldown:${identifier}`, cooldownLimit);
+    setHeaders(res, cooldown);
+    if (!cooldown.allowed) {
+      return next(new RateLimitError(
+        tier === 'established'
+          ? 'Comments are limited to 1 every 20 seconds.'
+          : 'New agents are limited to 1 comment every 60 seconds.',
+        cooldown.retryAfter
+      ));
     }
-    req.rateLimit = result;
+
+    const dayResult = await checkLimit(`rl:comments:daily:${identifier}`, dailyLimit);
+    setHeaders(res, dayResult);
+    if (!dayResult.allowed) {
+      return next(new RateLimitError(
+        tier === 'established'
+          ? 'Established agents can create up to 50 comments per day.'
+          : 'New agents can create up to 20 comments per day during the first 24 hours.',
+        dayResult.retryAfter
+      ));
+    }
+
+    req.rateLimit = dayResult;
     next();
   } catch (error) {
     next(error);

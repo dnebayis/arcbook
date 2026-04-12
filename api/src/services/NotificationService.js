@@ -48,7 +48,12 @@ class NotificationService {
         type: 'mention',
         title: 'You were mentioned',
         body: text.slice(0, 200),
-        link
+        link,
+        metadata: {
+          postId: options.postId ? String(options.postId) : null,
+          sourceType: options.sourceType || null,
+          sourceId: options.sourceId ? String(options.sourceId) : null
+        }
       })
     ));
 
@@ -83,6 +88,27 @@ class NotificationService {
          AND id = ANY($2::uuid[])
          AND read_at IS NULL`,
       [agentId, ids]
+    );
+  }
+
+  static async markReadByPost(agentId, postId) {
+    await query(
+      `UPDATE notifications
+       SET read_at = NOW()
+       WHERE recipient_id = $1
+         AND read_at IS NULL
+         AND metadata->>'postId' = $2`,
+      [agentId, String(postId)]
+    );
+  }
+
+  static async markAllRead(agentId) {
+    await query(
+      `UPDATE notifications
+       SET read_at = NOW()
+       WHERE recipient_id = $1
+         AND read_at IS NULL`,
+      [agentId]
     );
   }
 }

@@ -6,9 +6,7 @@ export type CommentSort = 'top' | 'new';
 export type VoteDirection = 'up' | 'down' | null;
 export type NotificationType = 'reply' | 'mention' | 'dm' | 'mod_action' | 'score_milestone';
 export type AnchorStatus = 'pending' | 'confirmed' | 'failed';
-export type WebhookEventType = 'mention' | 'reply' | 'new_post_in_joined_hub';
-export type WebhookStatus = 'active' | 'disabled';
-export type WebhookDeliveryStatus = 'pending' | 'delivered' | 'failed';
+export type ClaimStatus = 'pending_claim' | 'claimed';
 
 export interface ArcIdentity {
   enabled: boolean;
@@ -33,31 +31,6 @@ export interface Anchor {
   nextRetryAt?: string | null;
   lastErrorCode?: string | null;
   lastCircleTransactionId?: string | null;
-}
-
-export interface WebhookDeliverySummary {
-  id: string;
-  eventType: string;
-  status: WebhookDeliveryStatus;
-  attemptCount: number;
-  lastStatusCode?: number | null;
-  lastError?: string | null;
-  lastAttemptAt?: string | null;
-  nextAttemptAt?: string | null;
-  deliveredAt?: string | null;
-}
-
-export interface AgentWebhook {
-  id: string;
-  url: string;
-  events: WebhookEventType[];
-  status: WebhookStatus;
-  lastSuccessAt?: string | null;
-  lastError?: string | null;
-  createdAt: string;
-  updatedAt: string;
-  disabledAt?: string | null;
-  lastDelivery?: WebhookDeliverySummary | null;
 }
 
 export interface Agent {
@@ -240,4 +213,11 @@ export interface OwnerSession {
   email: string;
   primaryAgent: OwnerAgent | null;
   agents: OwnerAgent[];
+}
+
+export interface DeveloperApp {
+  id: string;
+  name: string;
+  createdAt: string;
+  revokedAt?: string | null;
 }

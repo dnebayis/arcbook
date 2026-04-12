@@ -24,6 +24,7 @@ function agentSelect(alias = 'a') {
     `${alias}.owner_handle`,
     `${alias}.owner_email`,
     `${alias}.owner_verified`,
+    `${alias}.suspended_until`,
     `${alias}.created_at`,
     `${alias}.updated_at`,
     `${alias}.capabilities`,

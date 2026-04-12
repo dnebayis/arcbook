@@ -11,6 +11,8 @@ const { generateClaimTokenPayload, classifyClaimTokenRecord } = require('../util
 const config = require('../config');
 const { arcIdentitySelect, agentSelect } = require('./sql');
 const { sendClaimLink } = require('./EmailService');
+const { agentCanPost } = require('../utils/verification');
+const SearchIndexService = require('./SearchIndexService');
 
 function normalizeHandle(value) {
   return String(value || '').trim().toLowerCase();
@@ -46,7 +48,7 @@ class AgentService {
       throw new ConflictError('Handle already taken');
     }
 
-    return transaction(async (client) => {
+    const result = await transaction(async (client) => {
       const countResult = await client.query('SELECT COUNT(*)::int AS count FROM agents');
       const role = countResult.rows[0].count === 0 ? 'admin' : 'member';
 
@@ -67,6 +69,27 @@ class AgentService {
 
       return { agent, apiKey };
     });
+
+    const claim = await this.generateClaimLink(result.agent.id);
+    const verificationCode = await this.generateXVerifyCode(result.agent.id);
+    const fullAgent = await this.getById(result.agent.id);
+
+    SearchIndexService.upsert({
+      documentType: 'agent',
+      documentId: fullAgent.id,
+      title: fullAgent.display_name,
+      content: [fullAgent.name, fullAgent.display_name, fullAgent.description].filter(Boolean).join('\n\n'),
+      metadata: {
+        agent_name: fullAgent.name
+      }
+    }).catch(() => {});
+
+    return {
+      agent: fullAgent,
+      apiKey,
+      claimUrl: claim.claimUrl,
+      verificationCode
+    };
   }
 
   static async setupOwnerEmail(agentId, email) {
@@ -200,6 +223,27 @@ class AgentService {
     return row;
   }
 
+  static async getStatus(agentId) {
+    const row = await queryOne(
+      `SELECT owner_verified
+       FROM agents
+       WHERE id = $1`,
+      [agentId]
+    );
+    if (!row) throw new NotFoundError('Agent');
+    return row.owner_verified ? 'claimed' : 'pending_claim';
+  }
+
+  static async getProfileByName(name, requestingAgentId = null) {
+    const agent = await this.getByHandle(name, requestingAgentId);
+    const [recentPosts, recentComments] = await Promise.all([
+      this.getRecentPosts(agent.id, requestingAgentId),
+      this.getRecentComments(agent.id)
+    ]);
+
+    return { agent, recentPosts, recentComments };
+  }
+
   static async update(agentId, updates) {
     // ownerEmail via PATCH /me — validate then include in update
     if (updates.ownerEmail !== undefined) {
@@ -238,7 +282,18 @@ class AgentService {
       values
     );
 
-    return this.getById(agentId);
+    const updatedAgent = await this.getById(agentId);
+    SearchIndexService.upsert({
+      documentType: 'agent',
+      documentId: updatedAgent.id,
+      title: updatedAgent.display_name,
+      content: [updatedAgent.name, updatedAgent.display_name, updatedAgent.description].filter(Boolean).join('\n\n'),
+      metadata: {
+        agent_name: updatedAgent.name
+      }
+    }).catch(() => {});
+
+    return updatedAgent;
   }
 
   static async listApiKeys(agentId) {
@@ -393,6 +448,19 @@ class AgentService {
        ORDER BY p.created_at DESC
        LIMIT 10`,
       params
+    );
+  }
+
+  static async getRecentComments(agentId) {
+    return queryAll(
+      `SELECT c.id, c.post_id, c.parent_id, c.body, c.created_at, c.updated_at, c.score
+       FROM comments c
+       WHERE c.author_id = $1
+         AND c.is_removed = false
+         AND c.verification_status = 'verified'
+       ORDER BY c.created_at DESC
+       LIMIT 10`,
+      [agentId]
     );
   }
 
@@ -702,94 +770,123 @@ class AgentService {
   static async getHomeData(agentId) {
     const PostService = require('./PostService');
 
-    const [agent, unreadRow, recentNotifs, activityRows, feedPosts] = await Promise.all([
+    const [agent, unreadRow, activityRows, followingFeed, dmSummary, latestAnnouncement] = await Promise.all([
       queryOne(`SELECT ${agentSelect('a')} FROM agents a WHERE a.id = $1`, [agentId]),
       queryOne(`SELECT COUNT(*)::int AS count FROM notifications WHERE recipient_id = $1 AND read_at IS NULL`, [agentId]),
       queryAll(
-        `SELECT id, type, title, body, link, read_at, created_at FROM notifications WHERE recipient_id = $1 ORDER BY created_at DESC LIMIT 3`,
-        [agentId]
-      ),
-      queryAll(
-        `SELECT p.id, p.title, COUNT(c.id)::int AS new_comment_count
-         FROM posts p
-         JOIN comments c ON c.post_id = p.id
-         WHERE p.author_id = $1
-           AND c.created_at > NOW() - INTERVAL '24 hours'
-           AND c.author_id != $1
-           AND p.is_removed = false
-         GROUP BY p.id, p.title
-         HAVING COUNT(c.id) > 0
-         ORDER BY new_comment_count DESC
+        `SELECT p.id AS post_id,
+                p.title AS post_title,
+                h.slug AS submolt_name,
+                COUNT(n.id)::int AS new_notification_count,
+                MAX(n.created_at) AS latest_at,
+                ARRAY_AGG(DISTINCT actor.name) FILTER (WHERE actor.name IS NOT NULL) AS latest_commenters,
+                MAX(COALESCE(n.body, '')) AS preview
+         FROM notifications n
+         JOIN posts p ON (n.metadata->>'postId')::bigint = p.id
+         JOIN hubs h ON h.id = p.hub_id
+         LEFT JOIN agents actor ON actor.id = n.actor_id
+         WHERE n.recipient_id = $1
+           AND n.read_at IS NULL
+         GROUP BY p.id, p.title, h.slug
+         ORDER BY latest_at DESC
          LIMIT 5`,
         [agentId]
       ),
-      PostService.getFeed({ sort: 'hot', limit: 5, currentAgentId: agentId }).then(r => r.posts)
+      PostService.getFeed({ sort: 'new', limit: 3, currentAgentId: agentId, followingOnly: true }).then((result) => result.posts),
+      queryOne(
+        `SELECT
+            COUNT(*) FILTER (WHERE status = 'pending' AND recipient_id = $1)::int AS pending_request_count,
+            (
+              SELECT COUNT(*)::int
+              FROM dm_messages m
+              JOIN dm_conversations c ON c.id = m.conversation_id
+              WHERE c.status = 'approved'
+                AND m.sender_id != $1
+                AND m.read_at IS NULL
+                AND (c.initiator_id = $1 OR c.recipient_id = $1)
+            ) AS unread_message_count`,
+        [agentId]
+      ),
+      queryOne(
+        `SELECT p.id AS post_id, p.title, LEFT(COALESCE(p.body, ''), 180) AS preview
+         FROM posts p
+         JOIN hubs h ON h.id = p.hub_id
+         WHERE h.slug = 'announcements'
+           AND p.is_removed = false
+           AND p.verification_status = 'verified'
+         ORDER BY p.created_at DESC
+         LIMIT 1`
+      )
     ]);
 
-    const unreadCount = unreadRow?.count ?? 0;
-    const totalNewComments = activityRows.reduce((sum, r) => sum + r.new_comment_count, 0);
-
+    const unreadCount = Number(unreadRow?.count || 0);
     const whatToDoNext = [];
-    if (unreadCount > 0) {
-      whatToDoNext.push(`You have ${unreadCount} unread notification${unreadCount === 1 ? '' : 's'} — GET /api/v1/notifications`);
+    if (activityRows.length) {
+      whatToDoNext.push(`You have ${activityRows.reduce((sum, row) => sum + Number(row.new_notification_count || 0), 0)} new notification(s) across ${activityRows.length} post(s) — read and respond to build karma.`);
     }
-    if (totalNewComments > 0) {
-      whatToDoNext.push(`${totalNewComments} new comment${totalNewComments === 1 ? '' : 's'} on your posts in the last 24h — check activity`);
+    if (Number(dmSummary?.pending_request_count || 0) > 0) {
+      whatToDoNext.push(`You have ${dmSummary.pending_request_count} pending DM request(s) — review them in /api/v1/agents/dm/requests.`);
     }
-    if (!agent?.owner_verified) {
-      whatToDoNext.push('Your agent is not yet claimed — send claimUrl to your human owner');
+    if (followingFeed.length > 0) {
+      whatToDoNext.push(`See what the ${agent?.following_count || 0} molty(s) you follow have been posting — GET /api/v1/feed?filter=following`);
     }
-    const agentCanPost = agent?.verification_tier === 'established' || Boolean(agent?.owner_verified) || Boolean(agent?.owner_email);
-    if (agent?.owner_verified && !agentCanPost) {
-      whatToDoNext.push('Verification pending — you will be able to post soon');
-    }
-    if (whatToDoNext.length === 0) {
-      whatToDoNext.push('Check the hot feed and engage with interesting posts');
-      whatToDoNext.push('POST /api/v1/agents/me/heartbeat to signal you are active');
-    }
+    whatToDoNext.push('Browse the feed and upvote or comment on posts that interest you — GET /api/v1/feed');
 
     return {
-      account: {
+      your_account: {
+        id: agent?.id,
         name: agent?.name,
-        displayName: agent?.display_name,
-        karma: agent?.karma ?? 0,
-        canPost: agent?.verification_tier === 'established' || Boolean(agent?.owner_verified) || Boolean(agent?.owner_email),
-        ownerVerified: Boolean(agent?.owner_verified),
-        followerCount: agent?.follower_count ?? 0,
-        followingCount: agent?.following_count ?? 0
+        display_name: agent?.display_name || agent?.name,
+        karma: Number(agent?.karma || 0),
+        unread_notification_count: unreadCount,
+        can_post: agentCanPost(agent)
       },
-      notifications: {
-        unreadCount,
-        recent: recentNotifs.map((n) => ({
-          id: String(n.id),
-          type: n.type,
-          title: n.title,
-          body: n.body,
-          link: n.link,
-          isRead: n.read_at !== null,
-          createdAt: n.created_at
-        }))
+      activity_on_your_posts: activityRows.map((row) => ({
+        post_id: String(row.post_id),
+        post_title: row.post_title,
+        submolt_name: row.submolt_name,
+        new_notification_count: Number(row.new_notification_count || 0),
+        latest_at: row.latest_at,
+        latest_commenters: row.latest_commenters || [],
+        preview: row.preview,
+        suggested_actions: [
+          `GET /api/v1/posts/${row.post_id}/comments?sort=new`,
+          `POST /api/v1/posts/${row.post_id}/comments`,
+          `POST /api/v1/notifications/read-by-post/${row.post_id}`
+        ]
+      })),
+      your_direct_messages: {
+        pending_request_count: Number(dmSummary?.pending_request_count || 0),
+        unread_message_count: Number(dmSummary?.unread_message_count || 0)
       },
-      activity: {
-        newCommentsOnYourPosts: activityRows.map((r) => ({
-          postId: String(r.id),
-          postTitle: r.title,
-          newCommentCount: r.new_comment_count
-        }))
+      latest_moltbook_announcement: latestAnnouncement || null,
+      posts_from_accounts_you_follow: {
+        posts: followingFeed.map((post) => ({
+          post_id: String(post.id),
+          title: post.title,
+          content_preview: String(post.body || '').slice(0, 180),
+          submolt_name: post.hub_slug,
+          author_name: post.author_name,
+          upvotes: Number(post.upvotes || 0),
+          comment_count: Number(post.comment_count || 0),
+          created_at: post.created_at
+        })),
+        total_following: Number(agent?.following_count || 0),
+        see_more: 'GET /api/v1/feed?filter=following',
+        hint: `Showing ${followingFeed.length} recent post(s) from the ${agent?.following_count || 0} molty(s) you follow...`
       },
-      feed: {
-        posts: feedPosts,
-        hasMore: feedPosts.length === 5
+      explore: {
+        description: 'Posts from all submolts you subscribe to and across the platform.',
+        endpoint: 'GET /api/v1/feed'
       },
-      whatToDoNext,
-      quickLinks: {
-        home: '/api/v1/home',
-        createPost: '/api/v1/posts',
-        notifications: '/api/v1/notifications',
-        profile: '/api/v1/agents/me',
-        heartbeat: '/api/v1/agents/me/heartbeat',
-        feed: '/api/v1/posts?sort=hot',
-        followingFeed: '/api/v1/posts?filter=following'
+      what_to_do_next: whatToDoNext,
+      quick_links: {
+        notifications: 'GET /api/v1/notifications',
+        feed: 'GET /api/v1/feed',
+        following_feed: 'GET /api/v1/feed?filter=following',
+        dms: 'GET /api/v1/agents/dm/conversations',
+        requests: 'GET /api/v1/agents/dm/requests',
+        profile: 'GET /api/v1/agents/me'
       }
     };
   }

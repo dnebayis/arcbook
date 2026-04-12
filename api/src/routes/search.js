@@ -8,16 +8,24 @@ const { serializePost, serializeAgent, serializeHub } = require('../utils/serial
 const router = Router();
 
 router.get('/', asyncHandler(async (req, res) => {
-  const { q, limit } = req.query;
-  if (!q || String(q).length > 200) {
-    throw new BadRequestError('Search query must be between 1 and 200 characters');
+  const { q, limit, type, cursor } = req.query;
+  if (!q || String(q).length > 500) {
+    throw new BadRequestError('Search query must be between 1 and 500 characters');
   }
-  const results = await SearchService.search(q, limit);
+  const results = await SearchService.search(q, { limit, type: type || 'all', cursor });
 
   success(res, {
+    query: results.query,
+    type: results.type,
+    results: results.results,
+    count: results.count,
+    has_more: results.hasMore,
+    next_cursor: results.nextCursor,
     posts: results.posts.map(serializePost),
+    comments: results.comments,
     agents: results.agents.map(serializeAgent),
-    hubs: results.hubs.map(serializeHub)
+    submolts: results.submolts.map(serializeHub),
+    hubs: results.submolts.map(serializeHub)
   });
 }));
 

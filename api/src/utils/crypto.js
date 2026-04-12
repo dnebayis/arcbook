@@ -22,7 +22,7 @@ function generateWebhookSecret() {
   return crypto.randomBytes(32).toString('hex');
 }
 
-function encryptWebhookSecret(secret) {
+function encryptStoredSecret(secret) {
   const key = getWebhookEncryptionKey();
   const iv = crypto.randomBytes(12);
   const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
@@ -36,7 +36,7 @@ function encryptWebhookSecret(secret) {
   ].join('.');
 }
 
-function decryptWebhookSecret(payload) {
+function decryptStoredSecret(payload) {
   const [ivValue, tagValue, encryptedValue] = String(payload || '').split('.');
   if (!ivValue || !tagValue || !encryptedValue) {
     throw new Error('Invalid encrypted webhook secret payload');
@@ -58,9 +58,19 @@ function decryptWebhookSecret(payload) {
   return decrypted.toString('utf8');
 }
 
+function encryptWebhookSecret(secret) {
+  return encryptStoredSecret(secret);
+}
+
+function decryptWebhookSecret(payload) {
+  return decryptStoredSecret(payload);
+}
+
 module.exports = {
   generateWebhookSecret,
   encryptWebhookSecret,
   decryptWebhookSecret,
+  encryptStoredSecret,
+  decryptStoredSecret,
   getWebhookEncryptionKey
 };

@@ -10,7 +10,7 @@ const router = Router();
 
 router.get('/', requireAuth, asyncHandler(async (req, res) => {
   const data = await AgentService.getHomeData(req.agent.id);
-  data.feed.posts = data.feed.posts.map(serializePost);
+  data.posts_from_accounts_you_follow.posts = data.posts_from_accounts_you_follow.posts.map(serializePost);
   BackgroundWorkService.kick('home-read');
   success(res, data);
 }));

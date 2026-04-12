@@ -9,8 +9,8 @@ const PostService = require('../services/PostService');
 const router = Router();
 
 router.get('/count-new', asyncHandler(async (req, res) => {
-  const { since, hub } = req.query;
-  const count = since ? await PostService.countNewerThan(since, hub || null) : 0;
+  const { since, hub, submolt } = req.query;
+  const count = since ? await PostService.countNewerThan(since, submolt || hub || null) : 0;
   success(res, { count });
 }));
 

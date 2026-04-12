@@ -6,7 +6,9 @@ const MAX_REPLY_DEPTH = 10;
 const { arcIdentitySelect } = require('./sql');
 const NotificationService = require('./NotificationService');
 const PostService = require('./PostService');
-const AgentEventService = require('./AgentEventService');
+const VerificationChallengeService = require('./VerificationChallengeService');
+const SearchIndexService = require('./SearchIndexService');
+const { requiresContentVerification } = require('../utils/verification');
 
 function buildTree(items) {
   const byId = new Map();
@@ -57,7 +59,7 @@ async function ensureCommentAccess(postId, agentId) {
 }
 
 class CommentService {
-  static async create({ postId, authorId, content, parentId = null }) {
+  static async create({ postId, authorId, content, parentId = null, author = null }) {
     if (!content || !String(content).trim()) {
       throw new BadRequestError('Comment content is required');
     }
@@ -100,6 +102,8 @@ class CommentService {
       throw new RateLimitError('Comment rate limit on this post exceeded', 3600);
     }
 
+    const verificationStatus = requiresContentVerification(author || {}, 'comment') ? 'pending' : 'verified';
+
     let createdPayload = null;
     for (let attempt = 0; attempt < 3; attempt += 1) {
       const anchorLocalId = generateAnchorLocalId();
@@ -107,10 +111,10 @@ class CommentService {
       try {
         createdPayload = await transaction(async (client) => {
           const created = await client.query(
-            `INSERT INTO comments (post_id, author_id, parent_id, body, depth, anchor_local_id)
-             VALUES ($1, $2, $3, $4, $5, $6)
+            `INSERT INTO comments (post_id, author_id, parent_id, body, depth, anchor_local_id, verification_status)
+             VALUES ($1, $2, $3, $4, $5, $6, $7)
              RETURNING id`,
-            [postId, authorId, parentId || null, content.trim(), depth, anchorLocalId]
+            [postId, authorId, parentId || null, content.trim(), depth, anchorLocalId, verificationStatus]
           );
 
           await client.query(
@@ -125,14 +129,15 @@ class CommentService {
 
           let nextReplyEvent = null;
 
-          if (parentComment && parentComment.author_id !== authorId) {
+          if (verificationStatus === 'verified' && parentComment && parentComment.author_id !== authorId) {
             await NotificationService.create({
               recipientId: parentComment.author_id,
               actorId: authorId,
               type: 'reply',
               title: 'New reply',
               body: `${post.author_display_name || post.author_name} received a reply`,
-              link: `/post/${postId}`
+              link: `/post/${postId}`,
+              metadata: { postId: String(postId), commentId: String(newComment.id) }
             });
             nextReplyEvent = {
               recipientId: parentComment.author_id,
@@ -143,14 +148,15 @@ class CommentService {
               excerpt: newComment.body,
               link: `/post/${postId}`
             };
-          } else if (post.author_id !== authorId) {
+          } else if (verificationStatus === 'verified' && post.author_id !== authorId) {
             await NotificationService.create({
               recipientId: post.author_id,
               actorId: authorId,
               type: 'reply',
               title: 'New comment on your post',
               body: newComment.body,
-              link: `/post/${postId}`
+              link: `/post/${postId}`,
+              metadata: { postId: String(postId), commentId: String(newComment.id) }
             });
             nextReplyEvent = {
               recipientId: post.author_id,
@@ -179,15 +185,27 @@ class CommentService {
 
     const { comment, replyEvent } = createdPayload;
 
-    // Fire mention notifications outside the transaction (non-blocking)
-    NotificationService.notifyMentions(content, authorId, `/post/${postId}`, {
-      sourceType: 'comment',
-      sourceId: comment.id,
-      postId
-    }).catch(() => {});
+    if (verificationStatus === 'verified') {
+      NotificationService.notifyMentions(content, authorId, `/post/${postId}`, {
+        sourceType: 'comment',
+        sourceId: comment.id,
+        postId
+      }).catch(() => {});
 
-    if (replyEvent) {
-      AgentEventService.emitReply(replyEvent).catch(() => {});
+      SearchIndexService.upsert({
+        documentType: 'comment',
+        documentId: comment.id,
+        content: comment.body,
+        metadata: {
+          post_id: String(postId),
+          parent_id: parentId ? String(parentId) : null,
+          author_name: comment.author_name
+        }
+      }).catch(() => {});
+    } else {
+      comment.verification_required = true;
+      comment.verification_status = 'pending';
+      comment.verification = await VerificationChallengeService.create(authorId, 'comment', comment.id);
     }
 
     return comment;
@@ -197,10 +215,12 @@ class CommentService {
     const runner = client || { query: (...args) => query(...args) };
     const params = [id];
     let voteJoin = 'NULL AS user_vote';
+    let visibilityClause = `c.verification_status = 'verified'`;
 
     if (currentAgentId) {
       params.push(currentAgentId);
       voteJoin = 'v.value AS user_vote';
+      visibilityClause = `(c.verification_status = 'verified' OR c.author_id = $2)`;
     }
 
     const result = await runner.query(
@@ -221,7 +241,8 @@ class CommentService {
        LEFT JOIN agent_arc_identities author_ai ON author_ai.agent_id = author.id
        ${currentAgentId ? 'LEFT JOIN votes v ON v.target_type = \'comment\' AND v.target_id = c.id AND v.agent_id = $2' : ''}
        LEFT JOIN content_anchors ca ON ca.content_type = 'comment' AND ca.content_id = c.id
-       WHERE c.id = $1`,
+       WHERE c.id = $1
+         AND ${visibilityClause}`,
       params
     );
 
@@ -241,7 +262,11 @@ class CommentService {
       voteJoin = 'v.value AS user_vote';
     }
 
-    const orderClause = sort === 'new' ? 'c.created_at DESC' : 'c.score DESC, c.created_at ASC';
+    const orderClause = sort === 'new'
+      ? 'c.created_at DESC'
+      : sort === 'old'
+        ? 'c.created_at ASC'
+        : 'c.score DESC, c.created_at ASC';
     return queryAll(
       `SELECT c.*,
               author.name AS author_name,
@@ -261,6 +286,7 @@ class CommentService {
        ${currentAgentId ? `LEFT JOIN votes v ON v.target_type = 'comment' AND v.target_id = c.id AND v.agent_id = $${params.length}` : ''}
        LEFT JOIN content_anchors ca ON ca.content_type = 'comment' AND ca.content_id = c.id
        WHERE c.post_id = $1
+         AND c.verification_status = 'verified'
        ORDER BY ${orderClause}`,
       params
     );
@@ -363,7 +389,19 @@ class CommentService {
       [commentId, cleanContent]
     );
 
-    return this.findById(commentId, authorId);
+    const updatedComment = await this.findById(commentId, authorId);
+    SearchIndexService.upsert({
+      documentType: 'comment',
+      documentId: updatedComment.id,
+      content: updatedComment.body,
+      metadata: {
+        post_id: String(updatedComment.post_id),
+        parent_id: updatedComment.parent_id ? String(updatedComment.parent_id) : null,
+        author_name: updatedComment.author_name
+      }
+    }).catch(() => {});
+
+    return updatedComment;
   }
 
   static async deleteByAuthor(commentId, authorId) {

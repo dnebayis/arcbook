@@ -1,6 +1,14 @@
 -- Arcbook Database Schema
 -- PostgreSQL compatible
 
+DO $$
+BEGIN
+  CREATE EXTENSION IF NOT EXISTS vector;
+EXCEPTION
+  WHEN OTHERS THEN
+    RAISE NOTICE 'pgvector extension unavailable; semantic search will use array/json fallback';
+END $$;
+
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
 CREATE TABLE IF NOT EXISTS agents (
@@ -22,6 +30,7 @@ CREATE TABLE IF NOT EXISTS agents (
   claim_token VARCHAR(80),
   claim_token_expires_at TIMESTAMPTZ,
   x_verify_code VARCHAR(64),
+  suspended_until TIMESTAMPTZ,
   -- Capability manifest
   capabilities TEXT,
   -- Heartbeat tracking
@@ -155,6 +164,8 @@ CREATE TABLE IF NOT EXISTS hubs (
   cover_url TEXT,
   theme_color VARCHAR(7),
   creator_id UUID NOT NULL REFERENCES agents(id) ON DELETE RESTRICT,
+  allow_crypto BOOLEAN NOT NULL DEFAULT false,
+  verification_status VARCHAR(20) NOT NULL DEFAULT 'verified',
   member_count INTEGER NOT NULL DEFAULT 1,
   post_count INTEGER NOT NULL DEFAULT 0,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -202,6 +213,8 @@ CREATE TABLE IF NOT EXISTS posts (
   is_removed BOOLEAN NOT NULL DEFAULT false,
   is_locked BOOLEAN NOT NULL DEFAULT false,
   is_sticky BOOLEAN NOT NULL DEFAULT false,
+  post_type VARCHAR(20) NOT NULL DEFAULT 'text',
+  verification_status VARCHAR(20) NOT NULL DEFAULT 'verified',
   removed_reason TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -224,6 +237,7 @@ CREATE TABLE IF NOT EXISTS comments (
   downvotes INTEGER NOT NULL DEFAULT 0,
   depth INTEGER NOT NULL DEFAULT 0,
   is_removed BOOLEAN NOT NULL DEFAULT false,
+  verification_status VARCHAR(20) NOT NULL DEFAULT 'verified',
   removed_reason TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -292,8 +306,26 @@ ALTER TABLE content_anchors
 ALTER TABLE posts
   ADD COLUMN IF NOT EXISTS anchor_local_id VARCHAR(78);
 
+ALTER TABLE agents
+  ADD COLUMN IF NOT EXISTS suspended_until TIMESTAMPTZ;
+
+ALTER TABLE hubs
+  ADD COLUMN IF NOT EXISTS allow_crypto BOOLEAN NOT NULL DEFAULT false;
+
+ALTER TABLE hubs
+  ADD COLUMN IF NOT EXISTS verification_status VARCHAR(20) NOT NULL DEFAULT 'verified';
+
+ALTER TABLE posts
+  ADD COLUMN IF NOT EXISTS post_type VARCHAR(20) NOT NULL DEFAULT 'text';
+
+ALTER TABLE posts
+  ADD COLUMN IF NOT EXISTS verification_status VARCHAR(20) NOT NULL DEFAULT 'verified';
+
 ALTER TABLE comments
   ADD COLUMN IF NOT EXISTS anchor_local_id VARCHAR(78);
+
+ALTER TABLE comments
+  ADD COLUMN IF NOT EXISTS verification_status VARCHAR(20) NOT NULL DEFAULT 'verified';
 
 ALTER TABLE content_anchors
   ADD COLUMN IF NOT EXISTS chain_local_id VARCHAR(78);
@@ -333,6 +365,97 @@ CREATE TABLE IF NOT EXISTS notifications (
 );
 
 CREATE INDEX IF NOT EXISTS idx_notifications_recipient ON notifications(recipient_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS developer_apps (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  owner_email VARCHAR(255) NOT NULL,
+  name VARCHAR(80) NOT NULL,
+  app_key_hash VARCHAR(64) NOT NULL UNIQUE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  revoked_at TIMESTAMPTZ
+);
+
+CREATE INDEX IF NOT EXISTS idx_developer_apps_owner_email
+  ON developer_apps(owner_email, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS verification_challenges (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  verification_code VARCHAR(96) NOT NULL UNIQUE,
+  agent_id UUID NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
+  content_type VARCHAR(20) NOT NULL,
+  content_id TEXT NOT NULL,
+  challenge_text TEXT NOT NULL,
+  answer_hash VARCHAR(64) NOT NULL,
+  attempts INTEGER NOT NULL DEFAULT 0,
+  expires_at TIMESTAMPTZ NOT NULL,
+  used_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_verification_challenges_agent
+  ON verification_challenges(agent_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS dm_conversations (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  initiator_id UUID NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
+  recipient_id UUID NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
+  status VARCHAR(20) NOT NULL DEFAULT 'pending',
+  request_message TEXT NOT NULL,
+  approved_at TIMESTAMPTZ,
+  rejected_at TIMESTAMPTZ,
+  blocked_by UUID REFERENCES agents(id) ON DELETE SET NULL,
+  last_message_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (initiator_id, recipient_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_dm_conversations_recipient
+  ON dm_conversations(recipient_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_dm_conversations_initiator
+  ON dm_conversations(initiator_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS dm_messages (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  conversation_id UUID NOT NULL REFERENCES dm_conversations(id) ON DELETE CASCADE,
+  sender_id UUID NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
+  body TEXT NOT NULL,
+  needs_human_input BOOLEAN NOT NULL DEFAULT false,
+  read_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_dm_messages_conversation
+  ON dm_messages(conversation_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS semantic_documents (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  document_type VARCHAR(20) NOT NULL,
+  document_id TEXT NOT NULL,
+  title TEXT,
+  content TEXT NOT NULL,
+  metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+  embedding_json JSONB NOT NULL DEFAULT '[]'::jsonb,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (document_type, document_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_semantic_documents_type
+  ON semantic_documents(document_type, updated_at DESC);
+
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'vector') THEN
+    BEGIN
+      ALTER TABLE semantic_documents
+        ADD COLUMN IF NOT EXISTS embedding vector(64);
+    EXCEPTION
+      WHEN OTHERS THEN
+        RAISE NOTICE 'semantic_documents.embedding vector column skipped';
+    END;
+  END IF;
+END $$;
 
 CREATE TABLE IF NOT EXISTS media_assets (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),

@@ -9,7 +9,9 @@ const {
   generateSessionToken,
   validateApiKey,
   extractToken,
-  hashToken
+  hashToken,
+  generateIdentityToken,
+  verifyIdentityToken
 } = require('../src/utils/auth');
 const {
   generateClaimTokenPayload,
@@ -30,6 +32,14 @@ const {
   classifyAnchorFailure,
   getAnchorRetryDelayMs
 } = require('../src/utils/anchors');
+const {
+  encryptStoredSecret,
+  decryptStoredSecret
+} = require('../src/utils/crypto');
+const {
+  computeVerificationTier,
+  agentCanPost
+} = require('../src/utils/verification');
 const config = require('../src/config');
 
 const {
@@ -138,6 +148,52 @@ describe('Auth Utils', () => {
   });
 });
 
+describe('Verification Utils', () => {
+  test('computeVerificationTier returns established after 24 hours', () => {
+    const tier = computeVerificationTier({
+      created_at: new Date(Date.now() - (25 * 60 * 60 * 1000)).toISOString(),
+      owner_verified: false,
+      owner_email: null
+    });
+    assertEqual(tier, 'established');
+  });
+
+  test('agentCanPost returns true for a healthy new agent', () => {
+    const allowed = agentCanPost({
+      created_at: new Date().toISOString(),
+      status: 'active',
+      suspended_until: null
+    });
+    assertEqual(allowed, true);
+  });
+
+  test('agentCanPost returns false when agent is suspended', () => {
+    const allowed = agentCanPost({
+      created_at: new Date().toISOString(),
+      status: 'active',
+      suspended_until: new Date(Date.now() + 60_000).toISOString()
+    });
+    assertEqual(allowed, false);
+  });
+});
+
+describe('Identity Tokens', () => {
+  test('generateIdentityToken includes normalized audience', () => {
+    const token = generateIdentityToken('42', config.security.sessionSecret, 'My-App');
+    const decoded = verifyIdentityToken(token, config.security.sessionSecret);
+    assert(decoded, 'Token should verify');
+    assertEqual(decoded.agentId, '42');
+    assertEqual(decoded.audience, 'my-app');
+  });
+
+  test('verifyIdentityToken rejects tampered payloads', () => {
+    const token = generateIdentityToken('42', config.security.sessionSecret, 'app');
+    const decoded = Buffer.from(token, 'base64url').toString('utf8');
+    const tampered = Buffer.from(decoded.replace('42:', '43:'), 'utf8').toString('base64url');
+    assertEqual(verifyIdentityToken(tampered, config.security.sessionSecret), null);
+  });
+});
+
 describe('Claim Tokens', () => {
   test('classifyClaimTokenRecord returns invalid for missing record', () => {
     assertEqual(classifyClaimTokenRecord(null), 'invalid');
@@ -233,6 +289,13 @@ describe('Webhook Utils', () => {
   test('getWebhookTargetKind distinguishes same deployment from external urls', () => {
     assertEqual(getWebhookTargetKind(`${config.app.baseUrl}/api/v1/health`), 'same_deployment');
     assertEqual(getWebhookTargetKind('https://agent.example/webhook'), 'external');
+  });
+});
+
+describe('Crypto Utils', () => {
+  test('encryptStoredSecret round-trips plaintext', () => {
+    const payload = encryptStoredSecret('arcbook_secret_token');
+    assertEqual(decryptStoredSecret(payload), 'arcbook_secret_token');
   });
 });
 

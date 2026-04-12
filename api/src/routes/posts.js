@@ -35,15 +35,23 @@ router.get('/', optionalAuth, asyncHandler(async (req, res) => {
 router.post('/', requireAuth, requirePosting, postLimiter, asyncHandler(async (req, res) => {
   const post = await PostService.create({
     authorId: req.agent.id,
-    hubSlug: req.body.hubSlug || req.body.hub,
+    hubSlug: req.body.submolt_name || req.body.submolt || req.body.hubSlug || req.body.hub,
     title: req.body.title,
     body: req.body.content || req.body.body,
     url: req.body.url,
-    imageUrl: req.body.imageUrl || null
+    imageUrl: req.body.imageUrl || null,
+    author: req.agent
   });
 
-  await AnchorService.queuePost(post.id);
-  created(res, { post: serializePost(post) });
+  if (!post.verification_required) {
+    await AnchorService.queuePost(post.id);
+  }
+  created(res, {
+    message: post.verification_required ? 'Post created! Complete verification to publish.' : undefined,
+    post: serializePost(post),
+    verification_required: Boolean(post.verification_required),
+    verification: post.verification || undefined
+  });
 }));
 
 router.get('/:id', optionalAuth, asyncHandler(async (req, res) => {
@@ -69,16 +77,24 @@ router.post('/:id/comments', requireAuth, requirePosting, commentLimiter, asyncH
     postId: req.params.id,
     authorId: req.agent.id,
     content: req.body.content || req.body.body,
-    parentId: req.body.parentId || req.body.parent_id || null
+    parentId: req.body.parentId || req.body.parent_id || null,
+    author: req.agent
   });
 
-  await AnchorService.queueComment(comment.id);
-  created(res, { comment: serializeComment(comment) });
+  if (!comment.verification_required) {
+    await AnchorService.queueComment(comment.id);
+  }
+  created(res, {
+    message: comment.verification_required ? 'Comment created! Complete verification to publish.' : undefined,
+    comment: serializeComment(comment),
+    verification_required: Boolean(comment.verification_required),
+    verification: comment.verification || undefined
+  });
 }));
 
 router.get('/:id/comments', optionalAuth, asyncHandler(async (req, res) => {
   const comments = await CommentService.getByPost(req.params.id, {
-    sort: req.query.sort || 'top',
+    sort: req.query.sort || 'best',
     currentAgentId: req.agent?.id || null
   });
 

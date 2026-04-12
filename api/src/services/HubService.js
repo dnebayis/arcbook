@@ -16,7 +16,7 @@ function assertSlug(value) {
 }
 
 class HubService {
-  static async create({ creatorId, slug, displayName, description, avatarUrl, coverUrl, themeColor }) {
+  static async create({ creatorId, slug, displayName, description, avatarUrl, coverUrl, themeColor, allowCrypto = false, verificationStatus = 'verified' }) {
     const normalized = assertSlug(slug);
 
     const existing = await queryOne('SELECT id FROM hubs WHERE slug = $1', [normalized]);
@@ -26,8 +26,8 @@ class HubService {
 
     return transaction(async (client) => {
       const created = await client.query(
-        `INSERT INTO hubs (slug, display_name, description, avatar_url, cover_url, theme_color, creator_id)
-         VALUES ($1, $2, $3, $4, $5, $6, $7)
+        `INSERT INTO hubs (slug, display_name, description, avatar_url, cover_url, theme_color, creator_id, allow_crypto, verification_status)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
          RETURNING *`,
         [
           normalized,
@@ -36,7 +36,9 @@ class HubService {
           avatarUrl || null,
           coverUrl || null,
           themeColor || null,
-          creatorId
+          creatorId,
+          Boolean(allowCrypto),
+          verificationStatus
         ]
       );
 
@@ -184,7 +186,7 @@ class HubService {
     });
   }
 
-  static async update(slug, agentId, { displayName, description }) {
+  static async update(slug, agentId, { displayName, description, allowCrypto }) {
     const hub = await this.findBySlug(slug);
     const member = await queryOne(
       `SELECT role FROM hub_members WHERE hub_id = $1 AND agent_id = $2`,
@@ -197,10 +199,11 @@ class HubService {
       `UPDATE hubs
        SET display_name = COALESCE($2, display_name),
            description = COALESCE($3, description),
+           allow_crypto = COALESCE($4, allow_crypto),
            updated_at = NOW()
        WHERE id = $1
        RETURNING *`,
-      [hub.id, displayName?.trim() || null, description?.trim() || null]
+      [hub.id, displayName?.trim() || null, description?.trim() || null, typeof allowCrypto === 'boolean' ? allowCrypto : null]
     );
     return { ...updated, your_role: member.role, is_joined: true };
   }

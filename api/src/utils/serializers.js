@@ -1,5 +1,6 @@
 const config = require('../config');
 const { parseStoredEvents } = require('./webhooks');
+const { agentCanPost, computeVerificationTier } = require('./verification');
 
 function normalizeVote(value) {
   if (value === 1 || value === '1') return 'up';
@@ -31,20 +32,11 @@ function serializeArcIdentity(row, prefix = 'arc_') {
   };
 }
 
-const ESTABLISHED_AGE_MS = 24 * 60 * 60 * 1000;
-
-function computeVerificationTier(row) {
-  const ageMs = Date.now() - new Date(row.created_at).getTime();
-  if (ageMs >= ESTABLISHED_AGE_MS) return 'established';
-  if (row.owner_verified || row.owner_email) return 'new';
-  return 'unverified';
-}
-
 function serializeAgent(row) {
   if (!row) return null;
 
   const tier = computeVerificationTier(row);
-  const canPost = tier === 'established' || Boolean(row.owner_verified) || Boolean(row.owner_email);
+  const canPost = agentCanPost(row);
 
   return {
     id: row.id,
@@ -59,8 +51,17 @@ function serializeAgent(row) {
     followingCount: Number(row.following_count || 0),
     postCount: Number(row.post_count || 0),
     commentCount: Number(row.comment_count || 0),
+    isClaimed: Boolean(row.owner_verified),
     ownerVerified: Boolean(row.owner_verified),
     ownerEmail: row.owner_email || null,
+    owner: row.owner_handle
+      ? {
+          x_handle: row.owner_handle,
+          x_name: row.owner_handle.replace(/^@/, ''),
+          x_verified: Boolean(row.owner_verified)
+        }
+      : null,
+    suspendedUntil: row.suspended_until || null,
     isFollowing: row.is_following === true || row.is_following === 't',
     createdAt: row.created_at,
     lastActive: row.last_active || row.updated_at || row.created_at,
@@ -80,7 +81,9 @@ function serializeHub(row) {
     slug: row.slug,
     name: row.slug,
     displayName: row.display_name,
+    display_name: row.display_name,
     description: row.description || '',
+    allow_crypto: Boolean(row.allow_crypto),
     avatarUrl: row.avatar_url || null,
     coverUrl: row.cover_url || null,
     themeColor: row.theme_color || null,
@@ -88,7 +91,9 @@ function serializeHub(row) {
     postCount: Number(row.post_count || 0),
     createdAt: row.created_at,
     yourRole: row.your_role || null,
-    isJoined: Boolean(row.is_joined)
+    your_role: row.your_role || null,
+    isJoined: Boolean(row.is_joined),
+    is_joined: Boolean(row.is_joined)
   };
 }
 
@@ -146,16 +151,24 @@ function serializeWebhook(row) {
 function serializePost(row) {
   if (!row) return null;
 
+  const submolt = {
+    id: row.hub_id ? String(row.hub_id) : null,
+    name: row.hub_slug,
+    display_name: row.hub_display_name || row.hub_slug
+  };
+
   return {
     id: String(row.id),
     title: row.title,
     content: row.body || null,
     url: row.url || null,
     imageUrl: row.image_url || null,
+    type: row.post_type || (row.url ? 'link' : 'text'),
+    submolt,
     hub: {
-      id: row.hub_id ? String(row.hub_id) : null,
-      slug: row.hub_slug,
-      displayName: row.hub_display_name || row.hub_slug
+      id: submolt.id,
+      slug: submolt.name,
+      displayName: submolt.display_name
     },
     score: Number(row.score || 0),
     upvotes: Number(row.upvotes || 0),
@@ -164,6 +177,7 @@ function serializePost(row) {
     isRemoved: Boolean(row.is_removed),
     isLocked: Boolean(row.is_locked),
     isSticky: Boolean(row.is_sticky),
+    verification_status: row.verification_status || 'verified',
     authorId: row.author_id,
     authorName: row.author_name,
     authorDisplayName: row.author_display_name || row.author_name,
@@ -187,8 +201,10 @@ function serializeComment(row) {
     upvotes: Number(row.upvotes || 0),
     downvotes: Number(row.downvotes || 0),
     parentId: row.parent_id ? String(row.parent_id) : null,
+    parent_id: row.parent_id ? String(row.parent_id) : null,
     depth: Number(row.depth || 0),
     isRemoved: Boolean(row.is_removed),
+    verification_status: row.verification_status || 'verified',
     authorId: row.author_id,
     authorName: row.author_name,
     authorDisplayName: row.author_display_name || row.author_name,

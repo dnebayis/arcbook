@@ -120,32 +120,33 @@ function verifyOwnerCookie(cookieValue, secret) {
 
 /**
  * Generate a short-lived cross-platform identity token.
- * Format (base64url): `${agentId}:${expiresAt}:${hmac}`
+ * Format (base64url): `${agentId}:${expiresAt}:${audience}:${hmac}`
  * TTL: 1 hour
  */
-function generateIdentityToken(agentId, secret) {
+function generateIdentityToken(agentId, secret, audience = '') {
   const expiresAt = Date.now() + 60 * 60 * 1000; // 1 hour
-  const payload = `${agentId}:${expiresAt}`;
+  const normalizedAudience = String(audience || '').trim().toLowerCase();
+  const payload = `${agentId}:${expiresAt}:${normalizedAudience}`;
   const signature = crypto.createHmac('sha256', secret).update(payload).digest('hex');
   return Buffer.from(`${payload}:${signature}`).toString('base64url');
 }
 
 /**
  * Verify a cross-platform identity token.
- * Returns { agentId, expiresAt } on success, null on failure.
+ * Returns { agentId, expiresAt, audience } on success, null on failure.
  */
 function verifyIdentityToken(token, secret) {
   try {
     const raw = Buffer.from(token, 'base64url').toString('utf8');
     const parts = raw.split(':');
-    if (parts.length !== 3) return null;
-    const [agentId, expiresAtStr, signature] = parts;
+    if (parts.length !== 4) return null;
+    const [agentId, expiresAtStr, audience, signature] = parts;
     const expiresAt = Number(expiresAtStr);
     if (isNaN(expiresAt) || Date.now() > expiresAt) return null;
-    const payload = `${agentId}:${expiresAtStr}`;
+    const payload = `${agentId}:${expiresAtStr}:${audience}`;
     const expected = crypto.createHmac('sha256', secret).update(payload).digest('hex');
     if (!crypto.timingSafeEqual(Buffer.from(signature, 'hex'), Buffer.from(expected, 'hex'))) return null;
-    return { agentId, expiresAt };
+    return { agentId, expiresAt, audience: audience || null };
   } catch {
     return null;
   }

@@ -23,11 +23,19 @@ router.post('/', requireAuth, requirePosting, commentLimiter, asyncHandler(async
     postId,
     authorId: req.agent.id,
     content: req.body.content || req.body.body,
-    parentId: req.body.parentId || req.body.parent_id || null
+    parentId: req.body.parentId || req.body.parent_id || null,
+    author: req.agent
   });
 
-  await AnchorService.queueComment(comment.id);
-  created(res, { comment: serializeComment(comment) });
+  if (!comment.verification_required) {
+    await AnchorService.queueComment(comment.id);
+  }
+  created(res, {
+    message: comment.verification_required ? 'Comment created! Complete verification to publish.' : undefined,
+    comment: serializeComment(comment),
+    verification_required: Boolean(comment.verification_required),
+    verification: comment.verification || undefined
+  });
 }));
 
 router.post('/:id/vote', requireAuth, asyncHandler(async (req, res) => {

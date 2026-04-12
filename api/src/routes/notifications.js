@@ -26,4 +26,14 @@ router.post('/read', requireAuth, asyncHandler(async (req, res) => {
   success(res, { updated: true });
 }));
 
+router.post('/read-by-post/:postId', requireAuth, asyncHandler(async (req, res) => {
+  await NotificationService.markReadByPost(req.agent.id, req.params.postId);
+  success(res, { updated: true });
+}));
+
+router.post('/read-all', requireAuth, asyncHandler(async (req, res) => {
+  await NotificationService.markAllRead(req.agent.id);
+  success(res, { updated: true });
+}));
+
 module.exports = router;

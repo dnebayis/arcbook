@@ -4,7 +4,9 @@ const { generateAnchorLocalId, isAnchorLocalIdCollision } = require('../utils/an
 const HubService = require('./HubService');
 const { arcIdentitySelect } = require('./sql');
 const NotificationService = require('./NotificationService');
-const AgentEventService = require('./AgentEventService');
+const VerificationChallengeService = require('./VerificationChallengeService');
+const SearchIndexService = require('./SearchIndexService');
+const { requiresContentVerification } = require('../utils/verification');
 
 function buildSortClause(sort) {
   switch (sort) {
@@ -35,8 +37,13 @@ async function ensureHubAccess(hubId, agentId) {
   }
 }
 
+function looksLikeCryptoContent({ title, body, url }) {
+  const text = [title, body, url].filter(Boolean).join(' ').toLowerCase();
+  return /(crypto|blockchain|token|nft|defi|erc-20|erc20|erc-721|erc721|wallet|airdrop|memecoin|solana|ethereum|base chain)/.test(text);
+}
+
 class PostService {
-  static async create({ authorId, hubSlug, title, body, url, imageUrl }) {
+  static async create({ authorId, hubSlug, title, body, url, imageUrl, author = null }) {
     if (!title || !String(title).trim()) {
       throw new BadRequestError('Title is required');
     }
@@ -47,8 +54,14 @@ class PostService {
       throw new BadRequestError('Post must have either content or a URL');
     }
 
-    const hub = await HubService.findBySlug(hubSlug);
+    const hub = await HubService.findBySlug(hubSlug || 'general');
     await ensureHubAccess(hub.id, authorId);
+    if (!hub.allow_crypto && looksLikeCryptoContent({ title, body, url })) {
+      throw new BadRequestError('Crypto content is not allowed in this submolt');
+    }
+
+    const verificationStatus = requiresContentVerification(author || {}, 'post') ? 'pending' : 'verified';
+    const postType = cleanUrl ? 'link' : imageUrl ? 'image' : 'text';
 
     let post = null;
     for (let attempt = 0; attempt < 3; attempt += 1) {
@@ -57,10 +70,10 @@ class PostService {
       try {
         post = await transaction(async (client) => {
           const created = await client.query(
-            `INSERT INTO posts (author_id, hub_id, title, body, url, image_url, anchor_local_id)
-             VALUES ($1, $2, $3, $4, $5, $6, $7)
+            `INSERT INTO posts (author_id, hub_id, title, body, url, image_url, anchor_local_id, post_type, verification_status)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
              RETURNING id`,
-            [authorId, hub.id, title.trim(), cleanBody, cleanUrl, imageUrl || null, anchorLocalId]
+            [authorId, hub.id, title.trim(), cleanBody, cleanUrl, imageUrl || null, anchorLocalId, postType, verificationStatus]
           );
 
           await client.query(
@@ -82,26 +95,34 @@ class PostService {
       }
     }
 
-    // Fire mention notifications outside the transaction (non-blocking)
-    NotificationService.notifyMentions(
-      `${title} ${body || ''}`,
-      authorId,
-      `/post/${post.id}`,
-      {
-        sourceType: 'post',
-        sourceId: post.id,
-        postId: post.id
-      }
-    ).catch(() => {});
+    if (verificationStatus === 'verified') {
+      NotificationService.notifyMentions(
+        `${title} ${body || ''}`,
+        authorId,
+        `/post/${post.id}`,
+        {
+          sourceType: 'post',
+          sourceId: post.id,
+          postId: post.id
+        }
+      ).catch(() => {});
 
-    AgentEventService.emitNewPostInJoinedHub({
-      hubId: hub.id,
-      hubSlug: hub.slug,
-      authorId,
-      postId: post.id,
-      title: post.title,
-      link: `/post/${post.id}`
-    }).catch(() => {});
+      SearchIndexService.upsert({
+        documentType: 'post',
+        documentId: post.id,
+        title: post.title,
+        content: [post.title, post.body, post.url].filter(Boolean).join('\n\n'),
+        metadata: {
+          post_id: String(post.id),
+          submolt_name: hub.slug,
+          author_name: post.author_name
+        }
+      }).catch(() => {});
+    } else {
+      post.verification_required = true;
+      post.verification_status = 'pending';
+      post.verification = await VerificationChallengeService.create(authorId, 'post', post.id);
+    }
 
     return post;
   }
@@ -110,10 +131,12 @@ class PostService {
     const runner = client || { query: (...args) => query(...args) };
     const params = [id];
     let voteJoin = 'NULL AS user_vote';
+    let visibilityClause = `p.verification_status = 'verified'`;
 
     if (currentAgentId) {
       params.push(currentAgentId);
       voteJoin = 'v.value AS user_vote';
+      visibilityClause = `(p.verification_status = 'verified' OR p.author_id = $2)`;
     }
 
     const result = await runner.query(
@@ -137,7 +160,8 @@ class PostService {
        LEFT JOIN agent_arc_identities author_ai ON author_ai.agent_id = author.id
        ${currentAgentId ? 'LEFT JOIN votes v ON v.target_type = \'post\' AND v.target_id = p.id AND v.agent_id = $2' : ''}
        LEFT JOIN content_anchors ca ON ca.content_type = 'post' AND ca.content_id = p.id
-       WHERE p.id = $1`,
+       WHERE p.id = $1
+         AND ${visibilityClause}`,
       params
     );
 
@@ -236,6 +260,7 @@ class PostService {
        ${currentAgentId ? `LEFT JOIN votes v ON v.target_type = 'post' AND v.target_id = p.id AND v.agent_id = $${params.length}` : ''}
        LEFT JOIN content_anchors ca ON ca.content_type = 'post' AND ca.content_id = p.id
        WHERE p.is_removed = false
+         AND p.verification_status = 'verified'
          ${hubFilter}
          ${cursorFilter}
        ORDER BY ${buildSortClause(sort)}, p.created_at DESC, p.id DESC
@@ -390,7 +415,20 @@ class PostService {
       params
     );
 
-    return this.findById(postId, authorId);
+    const updatedPost = await this.findById(postId, authorId);
+    SearchIndexService.upsert({
+      documentType: 'post',
+      documentId: updatedPost.id,
+      title: updatedPost.title,
+      content: [updatedPost.title, updatedPost.body, updatedPost.url].filter(Boolean).join('\n\n'),
+      metadata: {
+        post_id: String(updatedPost.id),
+        submolt_name: updatedPost.hub_slug,
+        author_name: updatedPost.author_name
+      }
+    }).catch(() => {});
+
+    return updatedPost;
   }
 
   static async deleteByAuthor(postId, authorId) {

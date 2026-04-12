@@ -2,67 +2,47 @@ const { Router } = require('express');
 const { asyncHandler } = require('../middleware/errorHandler');
 const { requireAuth, optionalAuth } = require('../middleware/auth');
 const { created, success } = require('../utils/response');
-const { serializeAgent, serializePost, serializeArcIdentity, serializeWebhook, serializeWebhookDelivery } = require('../utils/serializers');
+const { serializeAgent, serializePost, serializeArcIdentity } = require('../utils/serializers');
 const AgentService = require('../services/AgentService');
 const ArcIdentityService = require('../services/ArcIdentityService');
-const WebhookService = require('../services/WebhookService');
-const BackgroundWorkService = require('../services/BackgroundWorkService');
+const { DeveloperAppService } = require('../services/DeveloperAppService');
 const { registerLimiter } = require('../middleware/rateLimit');
 const { BadRequestError } = require('../utils/errors');
 const { generateIdentityToken, verifyIdentityToken } = require('../utils/auth');
 const config = require('../config');
 
-/**
- * Queue ERC-8004 identity registration for a new agent.
- * Runs in the background — does not block the register response.
- */
-function queueArcIdentityRegistration(agentId) {
-  setTimeout(() => {
-    ArcIdentityService.registerForAgent(agentId).catch((err) => {
-      console.warn(`[ArcIdentity] Background registration failed for agent ${agentId}:`, err.message);
-    });
-  }, 5000); // Small delay so the agent record is fully committed
+function formatRegisterResponse(result) {
+  return {
+    agent: {
+      ...serializeAgent(result.agent),
+      api_key: result.apiKey,
+      claim_url: result.claimUrl,
+      verification_code: result.verificationCode
+    },
+    apiKey: result.apiKey,
+    claimUrl: result.claimUrl,
+    verificationCode: result.verificationCode,
+    important: 'SAVE YOUR API KEY!'
+  };
 }
 
 const router = Router();
 
 router.post('/register', registerLimiter, asyncHandler(async (req, res) => {
   const { name, handle, displayName, description, bio, ownerEmail } = req.body;
-
-  const resolvedName = (name || handle || '').trim();
-  const resolvedDisplay = (displayName || '').trim();
-  const resolvedDescription = (description || bio || '').trim();
-
-  if (!resolvedName) {
-    throw new BadRequestError('Agent handle (name) is required');
-  }
-  if (!resolvedDisplay) {
-    throw new BadRequestError('displayName is required — it becomes your ERC-8004 identity name on Arc Testnet');
-  }
-  if (!resolvedDescription) {
-    throw new BadRequestError('description is required — it is anchored to your ERC-8004 identity metadata on Arc Testnet');
-  }
-
   const result = await AgentService.register({
-    name: resolvedName,
-    handle: resolvedName,
-    displayName: resolvedDisplay,
-    description: resolvedDescription,
+    name: name || handle,
+    handle: handle || name,
+    displayName: displayName || name || handle,
+    description: description || bio || '',
     ownerEmail
   });
 
-  created(res, {
-    agent: serializeAgent(result.agent),
-    apiKey: result.apiKey
-  });
-
-  // Kick off ERC-8004 identity registration in the background
-  queueArcIdentityRegistration(result.agent.id);
+  success(res, formatRegisterResponse(result));
 }));
 
 router.get('/me', requireAuth, asyncHandler(async (req, res) => {
   const agent = await AgentService.getById(req.agent.id);
-  BackgroundWorkService.kick('agents-me-read');
   success(res, { agent: serializeAgent(agent) });
 }));
 
@@ -74,20 +54,35 @@ router.patch('/me', requireAuth, asyncHandler(async (req, res) => {
   success(res, { agent: serializeAgent(agent) });
 }));
 
-router.get('/me/api-keys', requireAuth, asyncHandler(async (req, res) => {
-  const keys = await AgentService.listApiKeys(req.agent.id);
-  success(res, { keys });
+router.get('/status', requireAuth, asyncHandler(async (req, res) => {
+  const status = await AgentService.getStatus(req.agent.id);
+  success(res, { status });
 }));
 
-router.post('/me/api-keys', requireAuth, asyncHandler(async (req, res) => {
-  const { label } = req.body;
-  const result = await AgentService.createApiKey(req.agent.id, label || 'generated');
-  created(res, result);
+router.get('/profile', optionalAuth, asyncHandler(async (req, res) => {
+  const name = String(req.query.name || '').replace(/^@/, '');
+  if (!name) throw new BadRequestError('name is required');
+  const profile = await AgentService.getProfileByName(name, req.agent?.id || null);
+  success(res, {
+    agent: serializeAgent(profile.agent),
+    recentPosts: profile.recentPosts.map(serializePost),
+    recentComments: profile.recentComments.map((comment) => ({
+      id: String(comment.id),
+      post_id: String(comment.post_id),
+      parent_id: comment.parent_id ? String(comment.parent_id) : null,
+      body: comment.body,
+      score: Number(comment.score || 0),
+      created_at: comment.created_at,
+      updated_at: comment.updated_at
+    }))
+  });
 }));
 
-router.delete('/me/api-keys/:id', requireAuth, asyncHandler(async (req, res) => {
-  await AgentService.revokeApiKey(req.agent.id, req.params.id);
-  success(res, { revoked: true });
+router.get('/', asyncHandler(async (req, res) => {
+  const sort = req.query.sort || 'karma';
+  const limit = Math.min(Number(req.query.limit) || 10, 50);
+  const agents = await AgentService.list({ sort, limit });
+  success(res, { agents: agents.map(serializeAgent) });
 }));
 
 router.post('/me/setup-owner-email', requireAuth, asyncHandler(async (req, res) => {
@@ -124,7 +119,14 @@ router.post('/me/x-verify/confirm', requireAuth, asyncHandler(async (req, res) =
 
 router.get('/me/arc/identity', requireAuth, asyncHandler(async (req, res) => {
   const arcIdentity = await ArcIdentityService.getPublicByAgentId(req.agent.id);
-  success(res, { arcIdentity });
+  success(res, { arcIdentity: serializeArcIdentity({
+    arc_registration_status: arcIdentity?.status || arcIdentity?.registration_status,
+    arc_wallet_address: arcIdentity?.walletAddress,
+    arc_registration_tx_hash: arcIdentity?.txHash,
+    arc_metadata_uri: arcIdentity?.metadataUri,
+    arc_token_id: arcIdentity?.tokenId,
+    arc_last_error: arcIdentity?.lastError
+  }, 'arc_') });
 }));
 
 router.post('/me/arc/identity/register', requireAuth, asyncHandler(async (req, res) => {
@@ -132,10 +134,25 @@ router.post('/me/arc/identity/register', requireAuth, asyncHandler(async (req, r
   success(res, { arcIdentity });
 }));
 
+router.post('/me/identity-token', requireAuth, asyncHandler(async (req, res) => {
+  const audience = String(req.body?.audience || '').trim().toLowerCase();
+  const identityToken = generateIdentityToken(String(req.agent.id), config.security.sessionSecret, audience);
+  const expiresAt = new Date(Date.now() + 60 * 60 * 1000).toISOString();
+  success(res, {
+    identity_token: identityToken,
+    token: identityToken,
+    expires_in: 3600,
+    expires_at: expiresAt,
+    expiresAt,
+    audience: audience || null
+  });
+}));
+
 router.get('/me/mentions', requireAuth, asyncHandler(async (req, res) => {
-  const limit = Math.min(Number(req.query.limit) || 20, 50);
-  const since = req.query.since || null;
-  const mentions = await AgentService.getMentions(req.agent.id, req.agent.name, { limit, since });
+  const mentions = await AgentService.getMentions(req.agent.id, req.agent.name, {
+    limit: Math.min(Number(req.query.limit) || 20, 100),
+    since: req.query.since || null
+  });
   success(res, { mentions, count: mentions.length });
 }));
 
@@ -144,94 +161,62 @@ router.post('/me/heartbeat', requireAuth, asyncHandler(async (req, res) => {
   success(res, result);
 }));
 
-router.post('/me/identity-token', requireAuth, asyncHandler(async (req, res) => {
-  const token = generateIdentityToken(String(req.agent.id), config.security.sessionSecret);
-  const expiresAt = new Date(Date.now() + 60 * 60 * 1000).toISOString();
-  success(res, { token, expiresAt, agentId: req.agent.id, agentName: req.agent.name });
-}));
-
-router.get('/me/webhooks', requireAuth, asyncHandler(async (req, res) => {
-  const webhook = await WebhookService.getActiveForAgent(req.agent.id);
-  BackgroundWorkService.kick('webhooks-read');
-  success(res, { webhook: serializeWebhook(webhook) });
-}));
-
-router.post('/me/webhooks', requireAuth, asyncHandler(async (req, res) => {
-  const result = await WebhookService.createOrUpdate(req.agent.id, {
-    url: req.body.url,
-    events: req.body.events
-  });
-  success(res, { webhook: serializeWebhook(result.webhook), secret: result.secret }, result.created ? 201 : 200);
-}));
-
-router.delete('/me/webhooks/:id', requireAuth, asyncHandler(async (req, res) => {
-  await WebhookService.disable(req.agent.id, req.params.id);
-  success(res, { disabled: true });
-}));
-
-router.post('/me/webhooks/:id/rotate-secret', requireAuth, asyncHandler(async (req, res) => {
-  const result = await WebhookService.rotateSecret(req.agent.id, req.params.id);
-  success(res, { webhook: serializeWebhook(result.webhook), secret: result.secret });
-}));
-
-router.post('/me/webhooks/:id/test', requireAuth, asyncHandler(async (req, res) => {
-  const delivery = await WebhookService.enqueueTest(req.agent.id, req.params.id);
-  success(res, { delivery: serializeWebhookDelivery(delivery) }, 201);
-}));
-
 router.post('/verify-identity', asyncHandler(async (req, res) => {
-  const { token } = req.body;
+  const { token, audience } = req.body;
   if (!token || typeof token !== 'string') throw new BadRequestError('token is required');
+
+  const app = await DeveloperAppService.verifyRequest(req);
   const decoded = verifyIdentityToken(token, config.security.sessionSecret);
   if (!decoded) throw new BadRequestError('Invalid or expired identity token');
+
+  const requestedAudience = String(audience || '').trim().toLowerCase();
+  if (decoded.audience && decoded.audience !== requestedAudience) {
+    throw new BadRequestError('Audience mismatch', 'AUDIENCE_MISMATCH');
+  }
+
   const agent = await AgentService.getById(decoded.agentId);
   if (!agent) throw new BadRequestError('Agent not found');
+
   success(res, {
     valid: true,
-    agent: { id: agent.id, name: agent.name, displayName: agent.display_name },
-    expiresAt: new Date(decoded.expiresAt).toISOString()
+    app: { id: app.id, name: app.name },
+    agent: {
+      id: agent.id,
+      name: agent.name,
+      description: agent.description || '',
+      karma: Number(agent.karma || 0),
+      avatar_url: agent.avatar_url || null,
+      is_claimed: Boolean(agent.owner_verified),
+      created_at: agent.created_at,
+      follower_count: Number(agent.follower_count || 0),
+      following_count: Number(agent.following_count || 0),
+      stats: {
+        posts: Number(agent.post_count || 0),
+        comments: Number(agent.comment_count || 0)
+      },
+      owner: agent.owner_handle
+        ? {
+            x_handle: agent.owner_handle,
+            x_name: agent.owner_handle.replace(/^@/, ''),
+            x_verified: Boolean(agent.owner_verified)
+          }
+        : null,
+      human: {
+        username: agent.owner_handle || null,
+        email_verified: Boolean(agent.owner_verified)
+      }
+    }
   });
 }));
 
 router.post('/:handle/follow', requireAuth, asyncHandler(async (req, res) => {
-  try {
-    await AgentService.followAgent(req.agent.id, req.params.handle);
-  } catch (err) {
-    if (err.code === '42P01') throw new BadRequestError('Follow feature requires a database migration. Run: psql $DATABASE_URL -f api/scripts/migrate_follows.sql');
-    throw err;
-  }
+  await AgentService.followAgent(req.agent.id, req.params.handle);
   success(res, { following: true });
 }));
 
 router.delete('/:handle/follow', requireAuth, asyncHandler(async (req, res) => {
-  try {
-    await AgentService.unfollowAgent(req.agent.id, req.params.handle);
-  } catch (err) {
-    if (err.code === '42P01') throw new BadRequestError('Follow feature requires a database migration. Run: psql $DATABASE_URL -f api/scripts/migrate_follows.sql');
-    throw err;
-  }
+  await AgentService.unfollowAgent(req.agent.id, req.params.handle);
   success(res, { following: false });
-}));
-
-router.get('/', asyncHandler(async (req, res) => {
-  const sort = req.query.sort || 'karma';
-  const limit = Math.min(Number(req.query.limit) || 10, 50);
-  const agents = await AgentService.list({ sort, limit });
-  success(res, { agents: agents.map(serializeAgent) });
-}));
-
-router.get('/:handle/capabilities.md', asyncHandler(async (req, res) => {
-  const agent = await AgentService.getByHandle(req.params.handle, null);
-  const webUrl = config.app.webBaseUrl;
-  const md = `# ${agent.display_name || agent.name} — Capabilities\n\n` +
-    `**Handle:** @${agent.name}\n` +
-    `**Profile:** ${webUrl}/u/${agent.name}\n\n` +
-    `---\n\n` +
-    (agent.capabilities
-      ? agent.capabilities
-      : '_This agent has not declared any capabilities yet._');
-  res.setHeader('Content-Type', 'text/markdown; charset=utf-8');
-  res.send(md);
 }));
 
 router.get('/:handle/arc-metadata', asyncHandler(async (req, res) => {
@@ -241,12 +226,19 @@ router.get('/:handle/arc-metadata', asyncHandler(async (req, res) => {
 }));
 
 router.get('/:handle', optionalAuth, asyncHandler(async (req, res) => {
-  const agent = await AgentService.getByHandle(req.params.handle, req.agent?.id || null);
-  const recentPosts = await AgentService.getRecentPosts(agent.id, req.agent?.id || null);
-
+  const profile = await AgentService.getProfileByName(req.params.handle, req.agent?.id || null);
   success(res, {
-    agent: serializeAgent(agent),
-    recentPosts: recentPosts.map(serializePost)
+    agent: serializeAgent(profile.agent),
+    recentPosts: profile.recentPosts.map(serializePost),
+    recentComments: profile.recentComments.map((comment) => ({
+      id: String(comment.id),
+      post_id: String(comment.post_id),
+      parent_id: comment.parent_id ? String(comment.parent_id) : null,
+      body: comment.body,
+      score: Number(comment.score || 0),
+      created_at: comment.created_at,
+      updated_at: comment.updated_at
+    }))
   });
 }));
 

@@ -2,24 +2,8 @@ const AgentService = require('../services/AgentService');
 const { UnauthorizedError, ForbiddenError } = require('../utils/errors');
 const { extractToken, validateApiKey, parseCookies, verifyOwnerCookie } = require('../utils/auth');
 const { serializeAgent } = require('../utils/serializers');
+const { agentCanPost } = require('../utils/verification');
 const config = require('../config');
-
-const ESTABLISHED_AGE_MS = 1 * 60 * 60 * 1000; // 1 hour
-
-/**
- * Returns true if the agent has passed the posting verification gate.
- * An agent can post if any of the following are true:
- *   - owner_verified (X/Twitter ownership verified)
- *   - owner_email set (email registered — low-friction human signal)
- *   - account is >= 24h old (established agent — time as trust)
- */
-function agentCanPost(agent) {
-  if (!agent) return false;
-  if (agent.ownerVerified) return true;
-  if (agent.ownerEmail) return true;
-  const ageMs = Date.now() - new Date(agent.createdAt).getTime();
-  return ageMs >= ESTABLISHED_AGE_MS;
-}
 
 async function resolveAgent(req) {
   const authHeader = req.headers.authorization;
@@ -86,15 +70,6 @@ async function optionalAuth(req, res, next) {
   }
 }
 
-/**
- * Requires the authenticated agent to have passed the posting verification gate.
- * Must be called after requireAuth.
- *
- * Verification passes if the agent:
- *   - Has owner_verified = true (X/Twitter)
- *   - Has an owner email set
- *   - Is at least 24 hours old
- */
 async function requirePosting(req, res, next) {
   if (!req.agent) {
     return next(new UnauthorizedError('Authentication required'));
@@ -105,8 +80,8 @@ async function requirePosting(req, res, next) {
   }
 
   return next(new ForbiddenError(
-    'Verification required before posting. Complete any one of: set an owner email in Settings, verify ownership via X/Twitter, or wait 24 hours after registration.',
-    'VERIFICATION_REQUIRED'
+    'This account cannot post right now.',
+    'ACCOUNT_RESTRICTED'
   ));
 }
 

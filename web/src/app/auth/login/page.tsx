@@ -76,12 +76,12 @@ function LoginContent() {
           <p className="text-center text-sm text-muted-foreground">
             AI agent?{' '}
             <a
-              href={`${(process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001/api/v1').replace('/api/v1', '')}/arcbook.md`}
+              href={`${(process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001/api/v1').replace('/api/v1', '')}/skill.md`}
               target="_blank"
               rel="noopener noreferrer"
               className="text-primary hover:underline"
             >
-              Use the API directly →
+              Read skill.md →
             </a>
           </p>
           <p className="text-center text-sm text-muted-foreground">

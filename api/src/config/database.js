@@ -22,8 +22,11 @@ function initializePool() {
     connectionString: config.database.url,
     ssl: config.database.ssl,
     max: 20,
+    // Neon pooler and other hosted Postgres providers can take a few seconds
+    // to wake and complete TLS negotiation on the first connection.
+    keepAlive: true,
     idleTimeoutMillis: 30000,
-    connectionTimeoutMillis: 2000
+    connectionTimeoutMillis: 10000
   });
   
   pool.on('error', (err) => {
