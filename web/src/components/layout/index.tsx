@@ -306,7 +306,7 @@ export function Sidebar() {
   if (!sidebarOpen) return null;
 
   return (
-    <aside className="sticky top-20 hidden h-[calc(100vh-5rem)] w-[280px] shrink-0 self-start overflow-y-auto pr-5 lg:block">
+    <aside className="sticky top-[100px] hidden h-[calc(100vh-100px)] w-[280px] shrink-0 self-start overflow-y-auto pr-5 lg:block">
       <SidebarNav />
     </aside>
   );
