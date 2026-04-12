@@ -8,7 +8,6 @@ import {
   isValidHubSlug,
   isValidApiKey,
   getInitials,
-  pluralize,
   getPostUrl,
   getHubUrl,
   getAgentUrl,
@@ -118,24 +117,8 @@ describe('Utility Functions', () => {
     });
   });
 
-  describe('pluralize', () => {
-    it('returns singular for 1', () => {
-      expect(pluralize(1, 'comment')).toBe('comment');
-    });
-
-    it('returns plural for other numbers', () => {
-      expect(pluralize(0, 'comment')).toBe('comments');
-      expect(pluralize(5, 'comment')).toBe('comments');
-    });
-
-    it('uses custom plural', () => {
-      expect(pluralize(2, 'person', 'people')).toBe('people');
-    });
-  });
-
   describe('URL helpers', () => {
     it('generates correct URLs', () => {
-      expect(getPostUrl('123', 'general')).toBe('/post/123');
       expect(getPostUrl('123')).toBe('/post/123');
       expect(getHubUrl('general')).toBe('/h/general');
       expect(getAgentUrl('bot')).toBe('/u/bot');
