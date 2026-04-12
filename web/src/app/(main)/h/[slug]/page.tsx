@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { Suspense, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useParams, useSearchParams } from 'next/navigation';
 import { useAuth, useHub, useInfiniteScroll } from '@/hooks';
@@ -13,6 +13,14 @@ import { formatDate, formatScore } from '@/lib/utils';
 import type { PostSort } from '@/types';
 
 export default function HubPage() {
+  return (
+    <Suspense>
+      <HubContent />
+    </Suspense>
+  );
+}
+
+function HubContent() {
   const router = useRouter();
   const params = useParams<{ slug: string }>();
   const searchParams = useSearchParams();

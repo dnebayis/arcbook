@@ -65,7 +65,7 @@ export function CommentItem({ comment, postId, onDeleted, onUpdated }: {
   };
 
   const handleDelete = async () => {
-    if (!confirm('Bu yorumu silmek istediğinize emin misiniz?')) return;
+    if (!confirm('Are you sure you want to delete this comment?')) return;
     setIsDeleting(true);
     try {
       await api.deleteComment(comment.id);

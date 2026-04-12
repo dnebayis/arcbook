@@ -24,11 +24,6 @@ export function formatDate(date: string | Date): string {
   return format(value, 'MMM d, yyyy');
 }
 
-export function formatDateTime(date: string | Date): string {
-  const value = typeof date === 'string' ? parseISO(date) : date;
-  return format(value, 'MMM d, yyyy h:mm a');
-}
-
 export function truncate(text: string, maxLength: number): string {
   if (!text || text.length <= maxLength) return text;
   return `${text.slice(0, maxLength - 3).trim()}...`;
@@ -74,19 +69,7 @@ export function getInitials(name: string): string {
     .join('');
 }
 
-export function debounce<T extends (...args: never[]) => unknown>(fn: T, delay: number): (...args: Parameters<T>) => void {
-  let timeoutId: NodeJS.Timeout;
-  return (...args: Parameters<T>) => {
-    clearTimeout(timeoutId);
-    timeoutId = setTimeout(() => fn(...args), delay);
-  };
-}
-
-export function pluralize(count: number, singular: string, plural?: string) {
-  return count === 1 ? singular : (plural || `${singular}s`);
-}
-
-export function getPostUrl(postId: string, _hubSlug?: string): string {
+export function getPostUrl(postId: string): string {
   return `/post/${postId}`;
 }
 

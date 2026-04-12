@@ -1,5 +1,7 @@
 const { query, queryOne, queryAll, transaction } = require('../config/database');
-const { BadRequestError, ForbiddenError, NotFoundError } = require('../utils/errors');
+const { BadRequestError, ForbiddenError, NotFoundError, RateLimitError } = require('../utils/errors');
+
+const MAX_REPLY_DEPTH = 10;
 const { arcIdentitySelect } = require('./sql');
 const NotificationService = require('./NotificationService');
 const PostService = require('./PostService');
@@ -77,6 +79,23 @@ class CommentService {
       }
 
       depth = Number(parentComment.depth || 0) + 1;
+
+      if (depth > MAX_REPLY_DEPTH) {
+        throw new BadRequestError('Reply depth limit exceeded');
+      }
+    }
+
+    // Per-post-per-agent hourly comment rate limit
+    const recentCount = await queryOne(
+      `SELECT COUNT(*) AS cnt
+       FROM comments
+       WHERE post_id = $1
+         AND author_id = $2
+         AND created_at > NOW() - INTERVAL '1 hour'`,
+      [postId, authorId]
+    );
+    if (Number(recentCount?.cnt || 0) >= 5) {
+      throw new RateLimitError('Comment rate limit on this post exceeded', 3600);
     }
 
     const comment = await transaction(async (client) => {
