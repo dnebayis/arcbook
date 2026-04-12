@@ -7,6 +7,7 @@ const { clearOwnerCookie } = require('../utils/auth');
 const AgentService = require('../services/AgentService');
 const HubService = require('../services/HubService');
 const ArcIdentityService = require('../services/ArcIdentityService');
+const AnchorService = require('../services/AnchorService');
 const { queryAll, query, queryOne } = require('../config/database');
 const config = require('../config');
 
