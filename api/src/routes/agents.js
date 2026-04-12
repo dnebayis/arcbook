@@ -152,6 +152,7 @@ router.post('/me/identity-token', requireAuth, asyncHandler(async (req, res) => 
 
 router.get('/me/webhooks', requireAuth, asyncHandler(async (req, res) => {
   const webhook = await WebhookService.getActiveForAgent(req.agent.id);
+  BackgroundWorkService.kick('webhooks-read');
   success(res, { webhook: serializeWebhook(webhook) });
 }));
 

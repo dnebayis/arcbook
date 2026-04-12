@@ -9,6 +9,7 @@ const {
   buildWebhookSignature,
   buildWebhookHeaders,
   getWebhookRetryDelayMs,
+  getWebhookTargetKind,
   isRetryableWebhookStatus,
   isTerminalClientWebhookStatus
 } = require('../utils/webhooks');
@@ -43,6 +44,7 @@ class WebhookService {
               d.last_status_code AS last_delivery_status_code,
               d.last_error AS last_delivery_error,
               d.last_attempt_at AS last_delivery_attempt_at,
+              d.next_attempt_at AS last_delivery_next_attempt_at,
               d.delivered_at AS last_delivery_delivered_at
        FROM agent_webhooks w
        LEFT JOIN LATERAL (
@@ -170,7 +172,7 @@ class WebhookService {
   }
 
   static async enqueueTest(agentId, webhookId) {
-    const webhook = await this.assertWebhookOwnership(agentId, webhookId);
+    await this.assertWebhookOwnership(agentId, webhookId);
     const delivery = await this.enqueueEvent({
       recipientAgentId: agentId,
       eventType: 'test',
@@ -186,6 +188,8 @@ class WebhookService {
       throw new BadRequestError('No active webhook available for testing');
     }
 
+    const BackgroundWorkService = require('./BackgroundWorkService');
+    BackgroundWorkService.kick(`webhook-test:${webhookId}`, { forceRemote: true });
     return delivery;
   }
 
@@ -225,6 +229,7 @@ class WebhookService {
          )
          UPDATE agent_webhook_deliveries d
          SET leased_until = NOW() + ($1 * INTERVAL '1 millisecond'),
+             next_attempt_at = NOW() + ($1 * INTERVAL '1 millisecond'),
              last_attempt_at = NOW(),
              attempt_count = d.attempt_count + 1
          FROM due
@@ -243,6 +248,7 @@ class WebhookService {
   static async processClaimedDelivery(delivery) {
     const rawBody = JSON.stringify(buildEnvelope(delivery));
     const timestamp = String(Date.now());
+    const targetKind = getWebhookTargetKind(delivery.webhook_url);
     const signature = buildWebhookSignature(
       decryptWebhookSecret(delivery.webhook_encrypted_secret),
       timestamp,
@@ -269,6 +275,9 @@ class WebhookService {
       clearTimeout(timeout);
       if (response.ok) {
         await this.recordSuccess(delivery.webhook_id, delivery.id, response.status);
+        console.info(
+          `[WebhookDelivery] delivered id=${delivery.id} event=${delivery.event_type} attempt=${delivery.attempt_count} status=${response.status} target=${targetKind}`
+        );
         return;
       }
 
@@ -276,25 +285,40 @@ class WebhookService {
 
       if (response.status === 410) {
         await this.recordFailure(delivery.webhook_id, delivery.id, response.status, errorText, { disableImmediately: true });
+        console.warn(
+          `[WebhookDelivery] disabled id=${delivery.id} event=${delivery.event_type} attempt=${delivery.attempt_count} status=${response.status} target=${targetKind} error=${errorText}`
+        );
         return;
       }
 
       if (isRetryableWebhookStatus(response.status)) {
         await this.recordRetry(delivery.id, response.status, errorText, delivery.attempt_count);
+        console.warn(
+          `[WebhookDelivery] retry id=${delivery.id} event=${delivery.event_type} attempt=${delivery.attempt_count} status=${response.status} target=${targetKind} error=${errorText}`
+        );
         return;
       }
 
       if (isTerminalClientWebhookStatus(response.status)) {
         await this.recordFailure(delivery.webhook_id, delivery.id, response.status, errorText);
+        console.warn(
+          `[WebhookDelivery] failed id=${delivery.id} event=${delivery.event_type} attempt=${delivery.attempt_count} status=${response.status} target=${targetKind} error=${errorText}`
+        );
         return;
       }
 
       await this.recordRetry(delivery.id, response.status, errorText, delivery.attempt_count);
+      console.warn(
+        `[WebhookDelivery] retry id=${delivery.id} event=${delivery.event_type} attempt=${delivery.attempt_count} status=${response.status} target=${targetKind} error=${errorText}`
+      );
     } catch (error) {
       clearTimeout(timeout);
       const statusCode = error?.name === 'AbortError' ? 408 : null;
       const message = truncateError(error?.message || 'Webhook delivery failed');
       await this.recordRetry(delivery.id, statusCode, message, delivery.attempt_count);
+      console.warn(
+        `[WebhookDelivery] retry id=${delivery.id} event=${delivery.event_type} attempt=${delivery.attempt_count} status=${statusCode || 'network'} target=${targetKind} error=${message}`
+      );
     }
   }
 

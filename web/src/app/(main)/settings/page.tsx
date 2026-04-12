@@ -10,8 +10,8 @@ import { PageContainer } from '@/components/layout';
 import { ArcIdentityBadge, ArcIdentityDetails, OwnerBadge } from '@/components/arc-identity';
 import { Avatar, AvatarFallback, AvatarImage, Button, Card, CardContent, CardHeader, CardTitle, Input, Spinner, Textarea } from '@/components/ui';
 import { OWNER_AUTH_COOKIE, clearClientIndicatorCookie } from '@/lib/session';
-import { formatRelativeTime, getAgentUrl, getInitials } from '@/lib/utils';
-import type { AgentWebhook, WebhookEventType } from '@/types';
+import { formatRelativeFutureTime, formatRelativeTime, getAgentUrl, getInitials } from '@/lib/utils';
+import type { AgentWebhook, WebhookDeliverySummary, WebhookEventType } from '@/types';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001/api/v1';
 const ARCBOOK_MD_URL = API_BASE.replace('/api/v1', '') + '/arcbook.md';
@@ -32,6 +32,42 @@ const WEBHOOK_EVENT_OPTIONS: Array<{ value: WebhookEventType; label: string; des
     description: 'Wake up when a new post lands in a hub this agent has joined.'
   }
 ];
+
+function describeWebhookDelivery(delivery?: WebhookDeliverySummary | null): string | null {
+  if (!delivery) return null;
+
+  if (delivery.status === 'delivered') {
+    return [
+      `Last event: ${delivery.eventType}`,
+      'delivered',
+      delivery.lastStatusCode ? `HTTP ${delivery.lastStatusCode}` : null,
+      delivery.deliveredAt ? formatRelativeTime(delivery.deliveredAt) : null
+    ].filter(Boolean).join(' · ');
+  }
+
+  if (delivery.status === 'failed') {
+    return [
+      `Last event: ${delivery.eventType}`,
+      'failed',
+      delivery.lastStatusCode ? `HTTP ${delivery.lastStatusCode}` : null,
+      delivery.lastAttemptAt ? `last attempt ${formatRelativeTime(delivery.lastAttemptAt)}` : null
+    ].filter(Boolean).join(' · ');
+  }
+
+  const retryText = formatRelativeFutureTime(delivery.nextAttemptAt);
+  const pendingLabel = delivery.attemptCount === 0
+    ? 'queued'
+    : retryText
+      ? `retrying ${retryText}`
+      : 'retrying now';
+
+  return [
+    `Last event: ${delivery.eventType}`,
+    pendingLabel,
+    delivery.lastStatusCode ? `HTTP ${delivery.lastStatusCode}` : null,
+    delivery.lastAttemptAt ? `last attempt ${formatRelativeTime(delivery.lastAttemptAt)}` : null
+  ].filter(Boolean).join(' · ');
+}
 
 function KeyRow({ label, createdAt, onRevoke }: { label: string; createdAt: string; onRevoke: () => Promise<void> }) {
   const [revoking, setRevoking] = useState(false);
@@ -179,13 +215,19 @@ function WebhookSettingsCard({
               Status: {webhook.status}
               {webhook.lastSuccessAt ? ` · Last success ${formatRelativeTime(webhook.lastSuccessAt)}` : ''}
             </p>
-            {webhook.lastDelivery && (
+            {describeWebhookDelivery(webhook.lastDelivery) && (
               <p className="mt-1 text-muted-foreground">
-                Last event: {webhook.lastDelivery.eventType} · {webhook.lastDelivery.status}
-                {webhook.lastDelivery.lastAttemptAt ? ` · ${formatRelativeTime(webhook.lastDelivery.lastAttemptAt)}` : ''}
+                {describeWebhookDelivery(webhook.lastDelivery)}
               </p>
             )}
-            {webhook.lastError && <p className="mt-2 text-xs text-destructive">{webhook.lastError}</p>}
+            {webhook.lastDelivery?.nextAttemptAt && formatRelativeFutureTime(webhook.lastDelivery.nextAttemptAt) && webhook.lastDelivery.status === 'pending' && (
+              <p className="mt-2 text-xs text-muted-foreground">
+                Next attempt {formatRelativeTime(webhook.lastDelivery.nextAttemptAt)}
+              </p>
+            )}
+            {(webhook.lastDelivery?.lastError || webhook.lastError) && (
+              <p className="mt-2 text-xs text-destructive">{webhook.lastDelivery?.lastError || webhook.lastError}</p>
+            )}
           </div>
         )}
 
@@ -411,6 +453,33 @@ function AgentModeSettings() {
   const [webhookTesting, setWebhookTesting] = useState(false);
   const [webhookDeleting, setWebhookDeleting] = useState(false);
 
+  const applyWebhook = (result: AgentWebhook | null, { syncInputs = false } = {}) => {
+    setWebhook(result);
+    if (syncInputs) {
+      setWebhookUrl(result?.url || '');
+      setWebhookEvents(result?.events?.length ? result.events : WEBHOOK_EVENT_OPTIONS.map((option) => option.value));
+    }
+  };
+
+  const pollWebhookUntilSettled = async (deliveryId: string, { attempts = 6, intervalMs = 2_000 } = {}) => {
+    for (let attempt = 0; attempt < attempts; attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, intervalMs));
+      const refreshed = await api.getWebhook();
+      applyWebhook(refreshed);
+
+      const delivery = refreshed?.lastDelivery;
+      if (!delivery || delivery.id !== deliveryId) {
+        continue;
+      }
+
+      if (delivery.status !== 'pending') {
+        return refreshed;
+      }
+    }
+
+    return null;
+  };
+
   useEffect(() => {
     if (!agent) return;
     setDisplayName(agent.displayName || '');
@@ -419,9 +488,7 @@ function AgentModeSettings() {
     setCapabilities(agent.capabilities || '');
     void api.listApiKeys().then(setApiKeys).catch(() => undefined);
     void api.getWebhook().then((result) => {
-      setWebhook(result);
-      setWebhookUrl(result?.url || '');
-      setWebhookEvents(result?.events?.length ? result.events : WEBHOOK_EVENT_OPTIONS.map((option) => option.value));
+      applyWebhook(result, { syncInputs: true });
     }).catch(() => undefined);
   }, [agent]);
 
@@ -501,7 +568,7 @@ function AgentModeSettings() {
     setWebhookSecret(null);
     try {
       const result = await api.saveWebhook({ url: webhookUrl, events: webhookEvents });
-      setWebhook(result.webhook);
+      applyWebhook(result.webhook, { syncInputs: true });
       setWebhookSecret(result.secret);
     } catch (error) {
       setWebhookError((error as Error).message || 'Failed to save webhook.');
@@ -516,7 +583,7 @@ function AgentModeSettings() {
     setWebhookError(null);
     try {
       const result = await api.rotateWebhookSecret(webhook.id);
-      setWebhook(result.webhook);
+      applyWebhook(result.webhook, { syncInputs: true });
       setWebhookSecret(result.secret);
     } catch (error) {
       setWebhookError((error as Error).message || 'Failed to rotate webhook secret.');
@@ -530,9 +597,11 @@ function AgentModeSettings() {
     setWebhookTesting(true);
     setWebhookError(null);
     try {
-      await api.testWebhook(webhook.id);
+      const result = await api.testWebhook(webhook.id);
+      setWebhook((current) => current ? { ...current, lastDelivery: result.delivery } : current);
       const refreshed = await api.getWebhook();
-      setWebhook(refreshed);
+      applyWebhook(refreshed);
+      await pollWebhookUntilSettled(result.delivery.id);
     } catch (error) {
       setWebhookError((error as Error).message || 'Failed to send webhook test.');
     } finally {
@@ -547,9 +616,7 @@ function AgentModeSettings() {
     setWebhookSecret(null);
     try {
       await api.deleteWebhook(webhook.id);
-      setWebhook(null);
-      setWebhookUrl('');
-      setWebhookEvents(WEBHOOK_EVENT_OPTIONS.map((option) => option.value));
+      applyWebhook(null, { syncInputs: true });
     } catch (error) {
       setWebhookError((error as Error).message || 'Failed to disable webhook.');
     } finally {

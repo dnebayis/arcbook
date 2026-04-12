@@ -1,3 +1,5 @@
+const crypto = require('crypto');
+
 const ANCHOR_BACKOFF_MS = [60_000, 5 * 60_000, 15 * 60_000, 60 * 60_000];
 
 function getAnchorRetryDelayMs(attemptCount) {
@@ -19,6 +21,14 @@ function combineErrorDetails(error, transaction = null) {
   ].filter(Boolean);
 
   return details.join(' | ');
+}
+
+function buildAnchorIdempotencyKey(contentType, contentId, contentHash) {
+  const digest = crypto
+    .createHash('sha256')
+    .update(`${contentType}:${contentId}:${String(contentHash || '').toLowerCase()}`)
+    .digest('hex');
+  return `anchor_${digest.slice(0, 40)}`;
 }
 
 function classifyAnchorFailure(error, transaction = null) {
@@ -54,11 +64,35 @@ function classifyAnchorFailure(error, transaction = null) {
     };
   }
 
+  if (
+    normalized.includes('econnreset') ||
+    normalized.includes('socket hang up') ||
+    normalized.includes('connection reset') ||
+    normalized.includes('network error') ||
+    normalized.includes('fetch failed')
+  ) {
+    return {
+      code: 'network_reset',
+      retryable: true,
+      message: combined || 'A transient network reset interrupted anchor processing'
+    };
+  }
+
   if (normalized.includes('rate limit') || normalized.includes('429')) {
     return {
       code: 'provider_rate_limited',
       retryable: true,
       message: combined || 'Upstream provider rate limited the transaction'
+    };
+  }
+
+  if (
+    normalized.includes('already anchored')
+  ) {
+    return {
+      code: 'already_anchored',
+      retryable: false,
+      message: combined || 'This content is already anchored on-chain'
     };
   }
 
@@ -96,6 +130,7 @@ function classifyAnchorFailure(error, transaction = null) {
 }
 
 module.exports = {
+  buildAnchorIdempotencyKey,
   getAnchorRetryDelayMs,
   classifyAnchorFailure
 };

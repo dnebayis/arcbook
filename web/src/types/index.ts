@@ -43,6 +43,7 @@ export interface WebhookDeliverySummary {
   lastStatusCode?: number | null;
   lastError?: string | null;
   lastAttemptAt?: string | null;
+  nextAttemptAt?: string | null;
   deliveredAt?: string | null;
 }
 

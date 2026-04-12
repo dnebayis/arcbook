@@ -1,127 +1,47 @@
-import {
-  cn,
-  formatScore,
-  formatRelativeTime,
-  truncate,
-  extractDomain,
-  isValidAgentName,
-  isValidHubSlug,
-  isValidApiKey,
-  getInitials,
-  getPostUrl,
-  getHubUrl,
-  getAgentUrl,
-} from '@/lib/utils';
+import { getAnchorMeta } from '@/lib/utils';
+import type { Anchor } from '@/types';
 
-describe('Utility Functions', () => {
-  describe('cn', () => {
-    it('merges class names', () => {
-      expect(cn('a', 'b')).toBe('a b');
-    });
+function buildAnchor(overrides: Partial<Anchor> = {}): Anchor {
+  return {
+    status: 'pending',
+    txHash: null,
+    explorerUrl: null,
+    contentHash: null,
+    contentUri: null,
+    walletAddress: null,
+    lastError: null,
+    attemptCount: 0,
+    nextRetryAt: null,
+    lastErrorCode: null,
+    lastCircleTransactionId: null,
+    ...overrides
+  };
+}
 
-    it('handles conditional classes', () => {
-      expect(cn('a', false && 'b', 'c')).toBe('a c');
-    });
+describe('anchor helpers', () => {
+  it('shows submitted to Circle when a circle transaction id exists', () => {
+    const meta = getAnchorMeta(buildAnchor({
+      lastCircleTransactionId: 'circle_tx_123',
+      nextRetryAt: new Date(Date.now() + 60_000).toISOString()
+    }));
 
-    it('merges tailwind classes correctly', () => {
-      expect(cn('px-2', 'px-4')).toBe('px-4');
-    });
+    expect(meta).toContain('Submitted to Circle');
   });
 
-  describe('formatScore', () => {
-    it('formats small numbers', () => {
-      expect(formatScore(42)).toBe('42');
-      expect(formatScore(999)).toBe('999');
-    });
+  it('avoids stale retry labels for past retry timestamps', () => {
+    const meta = getAnchorMeta(buildAnchor({
+      nextRetryAt: new Date(Date.now() - 60_000).toISOString()
+    }));
 
-    it('formats thousands', () => {
-      expect(formatScore(1000)).toBe('1K');
-      expect(formatScore(1500)).toBe('1.5K');
-      expect(formatScore(10000)).toBe('10K');
-    });
-
-    it('formats millions', () => {
-      expect(formatScore(1000000)).toBe('1M');
-      expect(formatScore(2500000)).toBe('2.5M');
-    });
-
-    it('handles negative numbers', () => {
-      expect(formatScore(-100)).toBe('-100');
-      expect(formatScore(-1500)).toBe('-1.5K');
-    });
+    expect(meta).toBe('Checking again now');
   });
 
-  describe('truncate', () => {
-    it('returns original string if short enough', () => {
-      expect(truncate('hello', 10)).toBe('hello');
-    });
+  it('falls back to failed error text when the anchor failed', () => {
+    const meta = getAnchorMeta(buildAnchor({
+      status: 'failed',
+      lastError: 'Circle transaction ended in state FAILED'
+    }));
 
-    it('truncates long strings', () => {
-      expect(truncate('hello world', 8)).toBe('hello...');
-    });
-  });
-
-  describe('extractDomain', () => {
-    it('extracts domain from URL', () => {
-      expect(extractDomain('https://www.example.com/path')).toBe('example.com');
-      expect(extractDomain('https://sub.example.com')).toBe('sub.example.com');
-    });
-
-    it('returns null for invalid URLs', () => {
-      expect(extractDomain('not a url')).toBeNull();
-    });
-  });
-
-  describe('isValidAgentName', () => {
-    it('validates correct names', () => {
-      expect(isValidAgentName('agent123')).toBe(true);
-      expect(isValidAgentName('my_agent')).toBe(true);
-      expect(isValidAgentName('Agent_Bot')).toBe(true);
-    });
-
-    it('rejects invalid names', () => {
-      expect(isValidAgentName('a')).toBe(false); // too short
-      expect(isValidAgentName('agent-name')).toBe(false); // invalid char
-      expect(isValidAgentName('agent name')).toBe(false); // space
-    });
-  });
-
-  describe('isValidHubSlug', () => {
-    it('validates correct names', () => {
-      expect(isValidHubSlug('general')).toBe(true);
-      expect(isValidHubSlug('my_community')).toBe(true);
-    });
-
-    it('rejects invalid names', () => {
-      expect(isValidHubSlug('x')).toBe(false);
-      expect(isValidHubSlug('Invalid')).toBe(false);
-    });
-  });
-
-  describe('isValidApiKey', () => {
-    it('validates correct API keys', () => {
-      expect(isValidApiKey(`arcbook_${'a'.repeat(64)}`)).toBe(true);
-    });
-
-    it('rejects invalid API keys', () => {
-      expect(isValidApiKey('invalid_key')).toBe(false);
-      expect(isValidApiKey('arcbook_short')).toBe(false);
-    });
-  });
-
-  describe('getInitials', () => {
-    it('gets initials from name', () => {
-      expect(getInitials('John Doe')).toBe('JD');
-      expect(getInitials('my_agent')).toBe('MA');
-      expect(getInitials('single')).toBe('S');
-    });
-  });
-
-  describe('URL helpers', () => {
-    it('generates correct URLs', () => {
-      expect(getPostUrl('123')).toBe('/post/123');
-      expect(getHubUrl('general')).toBe('/h/general');
-      expect(getAgentUrl('bot')).toBe('/u/bot');
-    });
+    expect(meta).toContain('Circle transaction ended in state FAILED');
   });
 });

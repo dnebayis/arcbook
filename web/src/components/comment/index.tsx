@@ -8,7 +8,7 @@ import { api } from '@/lib/api';
 import { useAuth, useCommentVote } from '@/hooks';
 import { Avatar, AvatarFallback, AvatarImage, Button, Skeleton, Textarea } from '@/components/ui';
 import { ArcIdentityBadge } from '@/components/arc-identity';
-import { cn, formatRelativeTime, formatScore, getAgentUrl, getInitials, truncate } from '@/lib/utils';
+import { cn, formatRelativeTime, formatScore, getAgentUrl, getAnchorMeta, getInitials } from '@/lib/utils';
 import type { Comment } from '@/types';
 
 export function CommentItem({ comment, postId, onDeleted, onUpdated }: {
@@ -27,17 +27,7 @@ export function CommentItem({ comment, postId, onDeleted, onUpdated }: {
   const [isDeleting, setIsDeleting] = React.useState(false);
   const [displayVote, setDisplayVote] = React.useState(comment.userVote ?? null);
   const [displayScore, setDisplayScore] = React.useState(comment.score);
-  const anchorMeta = comment.anchor?.status === 'pending'
-    ? comment.anchor.nextRetryAt
-      ? `Retry ${formatRelativeTime(comment.anchor.nextRetryAt)}`
-      : comment.anchor.lastError
-        ? truncate(comment.anchor.lastError, 90)
-        : null
-    : comment.anchor?.status === 'failed'
-      ? comment.anchor.lastError
-        ? truncate(comment.anchor.lastError, 90)
-        : comment.anchor.lastErrorCode || null
-      : null;
+  const anchorMeta = getAnchorMeta(comment.anchor);
   const isOwner = Boolean(agent && agent.id === comment.authorId);
 
   React.useEffect(() => {

@@ -5,7 +5,7 @@ const WalletService = require('./WalletService');
 const AgentService = require('./AgentService');
 const PostService = require('./PostService');
 const CommentService = require('./CommentService');
-const { classifyAnchorFailure, getAnchorRetryDelayMs } = require('../utils/anchors');
+const { buildAnchorIdempotencyKey, classifyAnchorFailure, getAnchorRetryDelayMs } = require('../utils/anchors');
 
 const TERMINAL_FAILED_STATES = new Set(['FAILED', 'DENIED', 'CANCELLED']);
 
@@ -56,7 +56,6 @@ class AnchorService {
        SET status = 'pending',
            leased_until = NULL,
            next_retry_at = NOW(),
-           last_circle_transaction_id = NULL,
            updated_at = NOW()
        WHERE content_type = $1
          AND content_id = $2
@@ -103,6 +102,7 @@ class AnchorService {
          )
          UPDATE content_anchors a
          SET leased_until = NOW() + ($1 * INTERVAL '1 millisecond'),
+             next_retry_at = NOW() + ($1 * INTERVAL '1 millisecond'),
              attempt_count = a.attempt_count + 1,
              last_attempt_at = NOW(),
              updated_at = NOW()
@@ -144,7 +144,7 @@ class AnchorService {
 
       const wallet = await WalletService.ensureWallet(workItem.agent);
       try {
-        await WalletService.fundWallet(wallet.wallet_address, { maxAttempts: 8, intervalMs: 1_500 });
+        await WalletService.ensureSufficientGasBalance(wallet.wallet_address, { maxAttempts: 8, intervalMs: 1_500 });
       } catch (error) {
         await this.handleProcessingFailure(row, error, {
           walletAddress: wallet.wallet_address,
@@ -155,7 +155,11 @@ class AnchorService {
 
       const client = WalletService.getClient();
       const tx = await client.createContractExecutionTransaction({
-        idempotencyKey: crypto.randomUUID(),
+        idempotencyKey: buildAnchorIdempotencyKey(
+          workItem.contentType,
+          workItem.contentId,
+          workItem.contentHash
+        ),
         walletId: wallet.circle_wallet_id,
         contractAddress: config.arc.contentRegistryAddress,
         abiFunctionSignature: 'anchorContent(uint8,uint256,uint256,uint256,bytes32,string)',
@@ -206,6 +210,9 @@ class AnchorService {
           toRetryTimestamp(row.attempt_count)
         ]
       );
+      console.info(
+        `[Anchor] submitted contentType=${workItem.contentType} contentId=${workItem.contentId} attempt=${row.attempt_count} txId=${transactionId}`
+      );
     } catch (error) {
       await this.handleProcessingFailure(row, error);
     }
@@ -243,6 +250,9 @@ class AnchorService {
             txHash
           ]
         );
+        console.info(
+          `[Anchor] confirmed contentType=${workItem.contentType} contentId=${workItem.contentId} attempt=${row.attempt_count} txHash=${txHash || 'none'}`
+        );
         return;
       }
 
@@ -260,6 +270,9 @@ class AnchorService {
            AND content_id = $2`,
         [workItem.contentType, workItem.contentId, toRetryTimestamp(row.attempt_count)]
       );
+      console.info(
+        `[Anchor] waiting_for_circle contentType=${workItem.contentType} contentId=${workItem.contentId} attempt=${row.attempt_count} txId=${row.last_circle_transaction_id} state=${state || 'pending'}`
+      );
     } catch (error) {
       await this.handleProcessingFailure(row, error, workItem);
     }
@@ -270,6 +283,16 @@ class AnchorService {
     const contentType = workItem?.contentType || row.content_type;
     const contentId = workItem?.contentId || row.content_id;
     const walletAddress = workItem?.walletAddress || row.wallet_address || null;
+
+    if (classification.code === 'already_anchored' && workItem) {
+      const reconciled = await this.reconcileAlreadyAnchored(row, workItem);
+      if (reconciled) {
+        console.info(
+          `[Anchor] reconciled_already_anchored contentType=${contentType} contentId=${contentId} attempt=${row.attempt_count}`
+        );
+        return;
+      }
+    }
 
     if (classification.retryable) {
       await query(
@@ -305,10 +328,62 @@ class AnchorService {
           Boolean(transaction && TERMINAL_FAILED_STATES.has(transaction.state || ''))
         ]
       );
+      console.warn(
+        `[Anchor] retry contentType=${contentType} contentId=${contentId} attempt=${row.attempt_count} code=${classification.code} error=${classification.message}`
+      );
       return;
     }
 
     await this.markFailed(row, classification, workItem);
+  }
+
+  static async reconcileAlreadyAnchored(row, workItem) {
+    const contentTypeCode = workItem.contentType === 'post' ? 1 : 2;
+    const record = await WalletService.getContentAnchorRecord(contentTypeCode, workItem.contentId).catch(() => null);
+    if (!record) {
+      return false;
+    }
+
+    if (record.contentHash !== String(workItem.contentHash || '').toLowerCase()) {
+      await this.markFailed(row, {
+        code: 'anchor_conflict',
+        message: 'This content id is already anchored on-chain with a different content hash',
+        retryable: false
+      }, {
+        ...workItem,
+        walletAddress: record.author
+      });
+      return true;
+    }
+
+    await query(
+      `UPDATE content_anchors
+       SET root_id = $3,
+           parent_id = $4,
+           wallet_address = $5,
+           content_hash = $6,
+           content_uri = $7,
+           status = 'confirmed',
+           leased_until = NULL,
+           last_error = NULL,
+           last_error_code = NULL,
+           last_circle_transaction_id = NULL,
+           next_retry_at = NOW(),
+           updated_at = NOW()
+       WHERE content_type = $1
+         AND content_id = $2`,
+      [
+        workItem.contentType,
+        workItem.contentId,
+        workItem.rootId,
+        workItem.parentId,
+        record.author,
+        workItem.contentHash,
+        workItem.contentUri
+      ]
+    );
+
+    return true;
   }
 
   static async markFailed(row, classification, workItem = null) {
@@ -337,6 +412,9 @@ class AnchorService {
         classification.message,
         classification.code
       ]
+    );
+    console.warn(
+      `[Anchor] failed contentType=${workItem?.contentType || row.content_type} contentId=${workItem?.contentId || row.content_id} attempt=${row.attempt_count} code=${classification.code} error=${classification.message}`
     );
   }
 

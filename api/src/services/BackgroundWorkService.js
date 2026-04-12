@@ -22,12 +22,19 @@ class BackgroundWorkService {
       timeBudgetMs: remainingMs
     });
 
+    const elapsedMs = Date.now() - startedAt;
+    if (stats.webhooks > 0 || stats.anchors > 0) {
+      console.info(
+        `[BackgroundWork] drained webhooks=${stats.webhooks} anchors=${stats.anchors} elapsedMs=${elapsedMs}`
+      );
+    }
+
     return stats;
   }
 
-  static kick(reason = 'unspecified') {
+  static kick(reason = 'unspecified', options = {}) {
     this.scheduleLocalDrain();
-    void this.kickRemote(reason);
+    void this.kickRemote(reason, options);
   }
 
   static scheduleLocalDrain() {
@@ -42,13 +49,13 @@ class BackgroundWorkService {
     }, 0);
   }
 
-  static async kickRemote(reason = 'unspecified') {
+  static async kickRemote(reason = 'unspecified', { forceRemote = false } = {}) {
     const now = Date.now();
-    if (now - this.lastRemoteKickAt < 1_500) return;
+    if (!forceRemote && now - this.lastRemoteKickAt < 1_500) return;
     this.lastRemoteKickAt = now;
 
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 1_500);
+    const timeout = setTimeout(() => controller.abort(), config.webhooks.remoteKickTimeoutMs);
 
     try {
       await fetch(`${config.app.baseUrl}/api/v1/internal/drain`, {
@@ -60,7 +67,12 @@ class BackgroundWorkService {
         body: JSON.stringify({ reason }),
         signal: controller.signal
       });
-    } catch {
+    } catch (error) {
+      if (error?.name === 'AbortError') {
+        console.warn(
+          `[BackgroundWork] remote kick timed out after ${config.webhooks.remoteKickTimeoutMs}ms (${reason})`
+        );
+      }
       // Self-kicks are best effort; the local drain remains as fallback.
     } finally {
       clearTimeout(timeout);

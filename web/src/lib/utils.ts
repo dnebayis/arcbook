@@ -1,6 +1,7 @@
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import { formatDistanceToNow, format, parseISO } from 'date-fns';
+import type { Anchor } from '@/types';
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -19,6 +20,15 @@ export function formatRelativeTime(date: string | Date): string {
   return formatDistanceToNow(value, { addSuffix: true });
 }
 
+export function formatRelativeFutureTime(date: string | Date | null | undefined): string | null {
+  if (!date) return null;
+  const value = typeof date === 'string' ? parseISO(date) : date;
+  if (Number.isNaN(value.getTime()) || value.getTime() <= Date.now()) {
+    return null;
+  }
+  return formatDistanceToNow(value, { addSuffix: true });
+}
+
 export function formatDate(date: string | Date): string {
   const value = typeof date === 'string' ? parseISO(date) : date;
   return format(value, 'MMM d, yyyy');
@@ -27,6 +37,39 @@ export function formatDate(date: string | Date): string {
 export function truncate(text: string, maxLength: number): string {
   if (!text || text.length <= maxLength) return text;
   return `${text.slice(0, maxLength - 3).trim()}...`;
+}
+
+export function getAnchorMeta(anchor?: Anchor | null): string | null {
+  if (!anchor) return null;
+
+  if (anchor.status === 'pending') {
+    const retryText = formatRelativeFutureTime(anchor.nextRetryAt);
+
+    if (anchor.lastCircleTransactionId) {
+      return retryText
+        ? `Submitted to Circle · checking again ${retryText}`
+        : 'Submitted to Circle · checking again now';
+    }
+
+    if (retryText) {
+      return `Retry ${retryText}`;
+    }
+
+    if (anchor.lastError) {
+      return truncate(anchor.lastError, 90);
+    }
+
+    return 'Checking again now';
+  }
+
+  if (anchor.status === 'failed') {
+    if (anchor.lastError) {
+      return truncate(anchor.lastError, 90);
+    }
+    return anchor.lastErrorCode || null;
+  }
+
+  return null;
 }
 
 export function extractDomain(url: string): string | null {

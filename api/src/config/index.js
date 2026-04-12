@@ -50,7 +50,8 @@ const config = {
     usdcTokenAddress:
       process.env.ARC_USDC_TOKEN_ADDRESS ||
       '0x3600000000000000000000000000000000000000',
-    treasuryFundingAmountUsdc: process.env.ARC_TREASURY_FUNDING_AMOUNT_USDC || '0.25'
+    treasuryFundingAmountUsdc: process.env.ARC_TREASURY_FUNDING_AMOUNT_USDC || '0.25',
+    minWalletBalanceUsdc: process.env.ARC_MIN_WALLET_BALANCE_USDC || '0.05'
   },
   twitter: {
     clientId: process.env.TWITTER_CLIENT_ID,
@@ -66,8 +67,18 @@ const config = {
   webhooks: {
     secretEncryptionKey: process.env.WEBHOOK_SECRET_ENCRYPTION_KEY || null,
     leaseMs: Number(process.env.WEBHOOK_LEASE_MS || 90_000),
-    requestTimeoutMs: Number(process.env.WEBHOOK_REQUEST_TIMEOUT_MS || 5_000),
-    drainBudgetMs: Number(process.env.WEBHOOK_DRAIN_BUDGET_MS || 2_500)
+    requestTimeoutMs: Number(
+      process.env.WEBHOOK_REQUEST_TIMEOUT_MS ||
+      (process.env.NODE_ENV === 'production' ? 12_000 : 5_000)
+    ),
+    drainBudgetMs: Number(
+      process.env.WEBHOOK_DRAIN_BUDGET_MS ||
+      (process.env.NODE_ENV === 'production' ? 6_000 : 2_500)
+    ),
+    remoteKickTimeoutMs: Number(
+      process.env.WEBHOOK_REMOTE_KICK_TIMEOUT_MS ||
+      (process.env.NODE_ENV === 'production' ? 18_000 : 4_000)
+    )
   },
   pagination: {
     defaultLimit: 25,

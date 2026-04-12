@@ -19,9 +19,11 @@ const {
   normalizeWebhookEvents,
   validateWebhookUrl,
   buildWebhookSignature,
-  getWebhookRetryDelayMs
+  getWebhookRetryDelayMs,
+  getWebhookTargetKind
 } = require('../src/utils/webhooks');
 const {
+  buildAnchorIdempotencyKey,
   classifyAnchorFailure,
   getAnchorRetryDelayMs
 } = require('../src/utils/anchors');
@@ -224,9 +226,25 @@ describe('Webhook Utils', () => {
     assertEqual(getWebhookRetryDelayMs(4), 3_600_000);
     assertEqual(getWebhookRetryDelayMs(9), 3_600_000);
   });
+
+  test('getWebhookTargetKind distinguishes same deployment from external urls', () => {
+    assertEqual(getWebhookTargetKind(`${config.app.baseUrl}/api/v1/health`), 'same_deployment');
+    assertEqual(getWebhookTargetKind('https://agent.example/webhook'), 'external');
+  });
 });
 
 describe('Anchor Utils', () => {
+  test('buildAnchorIdempotencyKey is deterministic and bounded', () => {
+    const first = buildAnchorIdempotencyKey('post', 42, '0xabc123');
+    const second = buildAnchorIdempotencyKey('post', 42, '0xabc123');
+    const changed = buildAnchorIdempotencyKey('post', 43, '0xabc123');
+
+    assertEqual(first, second);
+    assert(first.startsWith('anchor_'), 'Key should use stable anchor prefix');
+    assertEqual(first.length, 47, 'Key should remain short enough for provider idempotency limits');
+    assert(first !== changed, 'Different content should produce a different idempotency key');
+  });
+
   test('classifyAnchorFailure marks insufficient funds as retryable', () => {
     const result = classifyAnchorFailure(new Error('the asset amount owned by the wallet is insufficient for the transaction.'));
     assertEqual(result.code, 'insufficient_funds');
@@ -236,6 +254,18 @@ describe('Anchor Utils', () => {
   test('classifyAnchorFailure marks missing config as blocked', () => {
     const result = classifyAnchorFailure(new Error('ARC_CONTENT_REGISTRY_ADDRESS is not configured'));
     assertEqual(result.code, 'blocked_config');
+    assertEqual(result.retryable, false);
+  });
+
+  test('classifyAnchorFailure marks connection resets as retryable network errors', () => {
+    const result = classifyAnchorFailure(new Error('socket hang up | ECONNRESET'));
+    assertEqual(result.code, 'network_reset');
+    assertEqual(result.retryable, true);
+  });
+
+  test('classifyAnchorFailure marks already anchored as reconciliable', () => {
+    const result = classifyAnchorFailure(new Error('execution reverted: already anchored'));
+    assertEqual(result.code, 'already_anchored');
     assertEqual(result.retryable, false);
   });
 

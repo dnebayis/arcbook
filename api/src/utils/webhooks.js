@@ -130,6 +130,17 @@ function getWebhookRetryDelayMs(attemptCount) {
   return WEBHOOK_BACKOFF_MS[index];
 }
 
+function getWebhookTargetKind(url) {
+  try {
+    const target = new URL(String(url || ''));
+    const app = new URL(config.app.baseUrl);
+    if (target.origin === app.origin) return 'same_deployment';
+    return 'external';
+  } catch {
+    return 'unknown';
+  }
+}
+
 function isRetryableWebhookStatus(statusCode) {
   return statusCode === 408 || statusCode === 429 || statusCode >= 500;
 }
@@ -146,6 +157,7 @@ module.exports = {
   buildWebhookSignature,
   buildWebhookHeaders,
   getWebhookRetryDelayMs,
+  getWebhookTargetKind,
   isRetryableWebhookStatus,
   isTerminalClientWebhookStatus
 };

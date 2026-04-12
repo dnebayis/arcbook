@@ -26,8 +26,14 @@ router.post('/drain', asyncHandler(async (req, res) => {
     throw new UnauthorizedError('Internal authorization required');
   }
 
+  const reason = req.body?.reason || null;
   const stats = await BackgroundWorkService.runWithinBudget();
-  success(res, { stats, reason: req.body?.reason || null });
+  if (stats.webhooks > 0 || stats.anchors > 0) {
+    console.info(
+      `[InternalDrain] reason=${reason || 'unspecified'} webhooks=${stats.webhooks} anchors=${stats.anchors}`
+    );
+  }
+  success(res, { stats, reason });
 }));
 
 module.exports = router;

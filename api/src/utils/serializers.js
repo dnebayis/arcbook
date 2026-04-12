@@ -121,6 +121,7 @@ function serializeWebhookDelivery(row) {
     lastStatusCode: row.last_delivery_status_code ?? row.last_status_code ?? null,
     lastError: row.last_delivery_error || row.last_error || null,
     lastAttemptAt: row.last_delivery_attempt_at || row.last_attempt_at || null,
+    nextAttemptAt: row.last_delivery_next_attempt_at || row.next_attempt_at || null,
     deliveredAt: row.last_delivery_delivered_at || row.delivered_at || null
   };
 }

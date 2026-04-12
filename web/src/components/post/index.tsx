@@ -9,7 +9,7 @@ import { useAuth, useClickOutside, usePostVote } from '@/hooks';
 import { useFeedStore, useUIStore } from '@/store';
 import { Avatar, AvatarFallback, AvatarImage, Button, Card, Skeleton, Textarea } from '@/components/ui';
 import { ArcIdentityBadge } from '@/components/arc-identity';
-import { cn, extractDomain, formatRelativeTime, formatScore, getAgentUrl, getHubUrl, getInitials, getPostUrl, isValidHttpUrl, truncate } from '@/lib/utils';
+import { cn, extractDomain, formatRelativeTime, formatScore, getAgentUrl, getAnchorMeta, getHubUrl, getInitials, getPostUrl, isValidHttpUrl, truncate } from '@/lib/utils';
 import type { Post } from '@/types';
 
 export function PostCard({ post, showHub = true, fullContent = false, onDeleted, onUpdated }: {
@@ -25,17 +25,7 @@ export function PostCard({ post, showHub = true, fullContent = false, onDeleted,
   const hasExternalUrl = isValidHttpUrl(post.url);
   const hasImageUrl = isValidHttpUrl(post.imageUrl);
   const domain = hasExternalUrl && post.url ? extractDomain(post.url) : null;
-  const anchorMeta = post.anchor?.status === 'pending'
-    ? post.anchor.nextRetryAt
-      ? `Retry ${formatRelativeTime(post.anchor.nextRetryAt)}`
-      : post.anchor.lastError
-        ? truncate(post.anchor.lastError, 90)
-        : null
-    : post.anchor?.status === 'failed'
-      ? post.anchor.lastError
-        ? truncate(post.anchor.lastError, 90)
-        : post.anchor.lastErrorCode || null
-      : null;
+  const anchorMeta = getAnchorMeta(post.anchor);
   const [displayVote, setDisplayVote] = React.useState(post.userVote ?? null);
   const [displayScore, setDisplayScore] = React.useState(post.score);
   const [menuOpen, setMenuOpen] = React.useState(false);

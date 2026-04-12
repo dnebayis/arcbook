@@ -8,8 +8,11 @@ const { BadRequestError } = require('../utils/errors');
 const { classifyAnchorFailure } = require('../utils/anchors');
 
 const TERMINAL_TRANSACTION_STATES = new Set(['COMPLETE', 'FAILED', 'DENIED', 'CANCELLED']);
+const ARC_ANCHOR_RECORD_SIGNATURE = 'anchors(uint8,uint256)';
 
 class WalletService {
+  static anchorRecordSelector = null;
+
   static getClient() {
     this.assertCircleConfiguration();
 
@@ -100,6 +103,79 @@ class WalletService {
     return wallet;
   }
 
+  static parseUnits(value, decimals) {
+    const text = String(value || '0').trim();
+    if (!/^\d+(\.\d+)?$/.test(text)) {
+      throw new Error(`Invalid decimal amount: ${text}`);
+    }
+
+    const [whole, fraction = ''] = text.split('.');
+    const paddedFraction = `${fraction}${'0'.repeat(decimals)}`.slice(0, decimals);
+    return BigInt(whole) * (10n ** BigInt(decimals)) + BigInt(paddedFraction || '0');
+  }
+
+  static async rpcRequest(method, params) {
+    const response = await fetch(config.arc.rpcUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: Date.now(),
+        method,
+        params
+      })
+    });
+
+    const payload = await response.json();
+    if (payload.error) {
+      throw new Error(payload.error.message || `RPC ${method} failed`);
+    }
+
+    return payload.result;
+  }
+
+  static async getMethodSelector(signature) {
+    if (signature === ARC_ANCHOR_RECORD_SIGNATURE && this.anchorRecordSelector) {
+      return this.anchorRecordSelector;
+    }
+
+    const hexInput = `0x${Buffer.from(signature, 'utf8').toString('hex')}`;
+    const hash = await this.rpcRequest('web3_sha3', [hexInput]);
+    const selector = String(hash || '').slice(0, 10);
+
+    if (!selector || selector.length !== 10) {
+      throw new Error(`Failed to compute selector for ${signature}`);
+    }
+
+    if (signature === ARC_ANCHOR_RECORD_SIGNATURE) {
+      this.anchorRecordSelector = selector;
+    }
+
+    return selector;
+  }
+
+  static async getNativeBalance(address) {
+    const result = await this.rpcRequest('eth_getBalance', [address, 'latest']);
+    return BigInt(result || '0x0');
+  }
+
+  static async ensureSufficientGasBalance(destinationAddress, options = {}) {
+    const minBalance = options.minBalanceUsdc || config.arc.minWalletBalanceUsdc;
+
+    try {
+      const balanceWei = await this.getNativeBalance(destinationAddress);
+      const thresholdWei = this.parseUnits(minBalance, 18);
+      if (balanceWei >= thresholdWei) {
+        return { funded: false, balanceWei, thresholdWei };
+      }
+    } catch (error) {
+      console.warn(`[Wallet] Balance check failed for ${destinationAddress}: ${error.message}`);
+    }
+
+    await this.fundWallet(destinationAddress, options);
+    return { funded: true };
+  }
+
   static async fundWallet(destinationAddress, options = {}) {
     const client = this.getClient();
     const fundingResponse = await client.createTransaction({
@@ -121,6 +197,48 @@ class WalletService {
     }
 
     return this.pollTransaction(txId, options);
+  }
+
+  static padHexWord(value) {
+    const hex = typeof value === 'bigint'
+      ? value.toString(16)
+      : BigInt(value).toString(16);
+    return hex.padStart(64, '0');
+  }
+
+  static async getContentAnchorRecord(contentType, localId) {
+    if (!config.arc.contentRegistryAddress) return null;
+
+    const selector = await this.getMethodSelector(ARC_ANCHOR_RECORD_SIGNATURE);
+    const data = [
+      selector.slice(2),
+      this.padHexWord(contentType),
+      this.padHexWord(localId)
+    ].join('');
+
+    const result = await this.rpcRequest('eth_call', [{
+      to: config.arc.contentRegistryAddress,
+      data: `0x${data}`
+    }, 'latest']);
+
+    const hex = String(result || '').replace(/^0x/, '');
+    if (!hex || hex.length < 256) {
+      return null;
+    }
+
+    const createdAt = BigInt(`0x${hex.slice(64, 128)}`);
+    if (createdAt === 0n) {
+      return null;
+    }
+
+    const authorWord = hex.slice(0, 64);
+    const contentHashWord = hex.slice(128, 192);
+
+    return {
+      author: `0x${authorWord.slice(24)}`.toLowerCase(),
+      createdAt,
+      contentHash: `0x${contentHashWord}`.toLowerCase()
+    };
   }
 
   static async getTransaction(transactionId) {
