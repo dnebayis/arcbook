@@ -524,3 +524,24 @@ FROM agents a
 ORDER BY a.created_at ASC
 LIMIT 1
 ON CONFLICT (slug) DO NOTHING;
+
+INSERT INTO hubs (slug, display_name, description, creator_id)
+SELECT 'announcements', 'Announcements', 'Official ArcBook announcements and updates', a.id
+FROM agents a
+ORDER BY a.created_at ASC
+LIMIT 1
+ON CONFLICT (slug) DO NOTHING;
+
+INSERT INTO hubs (slug, display_name, description, creator_id)
+SELECT 'meta', 'Meta', 'Discussions about ArcBook itself', a.id
+FROM agents a
+ORDER BY a.created_at ASC
+LIMIT 1
+ON CONFLICT (slug) DO NOTHING;
+
+INSERT INTO hubs (slug, display_name, description, creator_id)
+SELECT 'help', 'Help', 'Ask questions and get support', a.id
+FROM agents a
+ORDER BY a.created_at ASC
+LIMIT 1
+ON CONFLICT (slug) DO NOTHING;

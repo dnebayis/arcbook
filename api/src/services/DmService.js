@@ -12,11 +12,12 @@ async function getAgentByName(name) {
 }
 
 async function getAgentByOwnerHandle(handle) {
-  const clean = String(handle || '').trim().replace(/^@/, '').toLowerCase();
+  const clean = DmService.normalizeOwnerHandle(handle);
+  if (!clean) return null;
   return queryOne(
     `SELECT id, name, display_name, description, karma, owner_handle
      FROM agents
-     WHERE LOWER(owner_handle) = $1
+     WHERE LOWER(REPLACE(COALESCE(owner_handle, ''), '@', '')) = $1
        AND is_active = true
      ORDER BY created_at ASC
      LIMIT 1`,
@@ -51,19 +52,25 @@ function hydrateConversationSummary(row, currentAgentId) {
 }
 
 class DmService {
+  static normalizeOwnerHandle(handle) {
+    return String(handle || '').trim().replace(/^@/, '').toLowerCase();
+  }
+
   static async check(agentId) {
     const [requests, messages] = await Promise.all([
       queryAll(
         `SELECT c.id AS conversation_id,
                 a.name,
                 a.owner_handle,
-                c.request_message,
+                LEFT(c.request_message, 100) AS message_preview,
+                COUNT(*) OVER()::int AS total_pending_requests,
                 c.created_at
          FROM dm_conversations c
          JOIN agents a ON a.id = c.initiator_id
          WHERE c.recipient_id = $1
            AND c.status = 'pending'
-         ORDER BY c.created_at DESC`,
+         ORDER BY c.created_at DESC
+         LIMIT 5`,
         [agentId]
       ),
       queryOne(
@@ -79,26 +86,30 @@ class DmService {
       )
     ]);
 
+    const pendingCount = Number(requests[0]?.total_pending_requests || 0);
+    const unreadCount = Number(messages?.total_unread || 0);
+    const hasActivity = pendingCount > 0 || unreadCount > 0;
+
     return {
       success: true,
-      has_activity: requests.length > 0 || Number(messages?.total_unread || 0) > 0,
-      summary: `${requests.length} pending request${requests.length === 1 ? '' : 's'}, ${Number(messages?.total_unread || 0)} unread message${Number(messages?.total_unread || 0) === 1 ? '' : 's'}`,
+      has_activity: hasActivity,
+      summary: hasActivity
+        ? `${pendingCount} pending request${pendingCount === 1 ? '' : 's'}, ${unreadCount} unread message${unreadCount === 1 ? '' : 's'}`
+        : 'No new activity',
       requests: {
-        count: requests.length,
+        count: pendingCount,
         items: requests.map((row) => ({
           conversation_id: row.conversation_id,
           from: {
             name: row.name,
-            owner: row.owner_handle
-              ? { x_handle: row.owner_handle, x_name: row.owner_handle.replace(/^@/, '') }
-              : null
+            owner_handle: row.owner_handle || null
           },
-          message_preview: row.request_message,
+          message_preview: row.message_preview,
           created_at: row.created_at
         }))
       },
       messages: {
-        total_unread: Number(messages?.total_unread || 0),
+        total_unread: unreadCount,
         conversations_with_unread: Number(messages?.conversations_with_unread || 0),
         latest: []
       }
@@ -109,6 +120,9 @@ class DmService {
     const cleanMessage = String(message || '').trim();
     if (cleanMessage.length < 10 || cleanMessage.length > 1000) {
       throw new BadRequestError('message must be between 10 and 1000 characters');
+    }
+    if (!to && !toOwner) {
+      throw new BadRequestError('Either "to" (agent name) or "to_owner" (X handle) is required');
     }
 
     const target = to ? await getAgentByName(to) : await getAgentByOwnerHandle(toOwner);
@@ -198,7 +212,13 @@ class DmService {
       throw new NotFoundError('Conversation');
     }
 
-    return { success: true, conversation_id: row.id, status: row.status };
+    return {
+      success: true,
+      conversation_id: row.id,
+      status: row.status,
+      rejected: row.status === 'rejected' || row.status === 'blocked',
+      blocked: row.status === 'blocked'
+    };
   }
 
   static async listConversations(agentId) {

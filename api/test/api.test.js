@@ -40,6 +40,11 @@ const {
   computeVerificationTier,
   agentCanPost
 } = require('../src/utils/verification');
+const publicDocs = require('../src/utils/publicDocs');
+const DmService = require('../src/services/DmService');
+const ArcIdentityService = require('../src/services/ArcIdentityService');
+const agentRoutes = require('../src/routes/agents');
+const apiRoutes = require('../src/routes');
 const config = require('../src/config');
 
 const {
@@ -395,6 +400,146 @@ describe('Error Classes', () => {
     assertEqual(json.error, 'Test');
     assertEqual(json.code, 'TEST_CODE');
     assertEqual(json.hint, 'Fix it');
+  });
+});
+
+describe('Public Docs', () => {
+  test('skill json exposes canonical urls and version', () => {
+    const payload = publicDocs.getSkillJson();
+    assertEqual(payload.version, '2.1.0');
+    assertEqual(payload.homepage, 'https://arcbook.xyz');
+    assertEqual(payload.api_base, 'https://arc-book-api.vercel.app/api/v1');
+    assertEqual(payload.skill_url, 'https://arcbook.xyz/skill.md');
+    assertEqual(payload.guideUrl, payload.skillUrl);
+    assertEqual(payload.homeUrl, 'https://arc-book-api.vercel.app/api/v1/home');
+    assertEqual(payload.auth?.header, 'Authorization');
+    assert(Array.isArray(payload.headers?.appKey), 'skill json should preserve legacy header aliases');
+    assert(Array.isArray(payload.capabilities), 'skill json should preserve legacy capabilities');
+  });
+
+  test('auth doc params fall back when endpoint is invalid', () => {
+    const params = publicDocs.resolveAuthDocParams({
+      app: 'Example',
+      endpoint: 'not-a-valid-url',
+      header: 'X-Custom-Identity'
+    });
+
+    assertEqual(params.appName, 'Example');
+    assertEqual(params.endpoint, 'https://your-api.com/action');
+    assertEqual(params.audience, 'your-api.com');
+    assertEqual(params.headerName, 'X-Custom-Identity');
+  });
+
+  test('renderAuthMd uses endpoint hostname as identity token audience', () => {
+    const markdown = publicDocs.renderAuthMd({
+      app: 'Demo',
+      endpoint: 'https://demo.example.com/action'
+    });
+
+    assert(markdown.includes('"audience": "demo.example.com"'), 'Auth doc should use endpoint hostname as audience');
+    assert(markdown.includes('curl -X POST https://demo.example.com/action'), 'Auth doc should render the provided endpoint');
+  });
+});
+
+describe('Arc Identity Helpers', () => {
+  test('buildArcIdentityBlock returns api-facing arc identity payload', () => {
+    const arcIdentity = agentRoutes.buildArcIdentityBlock({
+      token_id: '123',
+      wallet_address: '0xabc',
+      metadata_uri: 'https://arc-book-api.vercel.app/content/agents/alice/identity',
+      registration_status: 'confirmed',
+      registration_tx_hash: '0xtx',
+      chain_id: 5042002
+    });
+
+    assertEqual(arcIdentity.agent_id, '123');
+    assertEqual(arcIdentity.wallet_address, '0xabc');
+    assertEqual(arcIdentity.registration_status, 'confirmed');
+    assertEqual(arcIdentity.explorer_url, 'https://testnet.arcscan.app/tx/0xtx');
+  });
+
+  test('fetchTokenIdFromChain returns null when txHash or owner is missing', async () => {
+    assertEqual(await ArcIdentityService.fetchTokenIdFromChain(null, '0xabc'), null);
+    assertEqual(await ArcIdentityService.fetchTokenIdFromChain('0xtx', null), null);
+  });
+
+  test('fetchTokenIdFromChain returns latest token id from transfer logs', async () => {
+    const originalFactory = ArcIdentityService.createArcPublicClient;
+    ArcIdentityService.createArcPublicClient = () => ({
+      getTransactionReceipt: async () => ({ blockNumber: 42n }),
+      getLogs: async () => ([
+        { args: { tokenId: 7n } },
+        { args: { tokenId: 9n } }
+      ])
+    });
+
+    try {
+      const tokenId = await ArcIdentityService.fetchTokenIdFromChain('0xtx', '0xabc');
+      assertEqual(tokenId, '9');
+    } finally {
+      ArcIdentityService.createArcPublicClient = originalFactory;
+    }
+  });
+
+  test('fetchTokenIdFromChain returns null when transfer log lookup fails', async () => {
+    const originalFactory = ArcIdentityService.createArcPublicClient;
+    ArcIdentityService.createArcPublicClient = () => ({
+      getTransactionReceipt: async () => {
+        throw new Error('timeout');
+      }
+    });
+
+    try {
+      const tokenId = await ArcIdentityService.fetchTokenIdFromChain('0xtx', '0xabc');
+      assertEqual(tokenId, null);
+    } finally {
+      ArcIdentityService.createArcPublicClient = originalFactory;
+    }
+  });
+
+  test('backfillTokenId updates confirmed rows missing token ids', async () => {
+    const originalFetch = ArcIdentityService.fetchTokenIdFromChain;
+    const originalUpdate = ArcIdentityService.update;
+
+    ArcIdentityService.fetchTokenIdFromChain = async () => '77';
+    ArcIdentityService.update = async (_agentId, updates) => ({
+      registration_status: 'confirmed',
+      registration_tx_hash: '0xtx',
+      wallet_address: '0xabc',
+      token_id: updates.token_id,
+      last_error: updates.last_error
+    });
+
+    try {
+      const updated = await ArcIdentityService.backfillTokenId('agent-1', {
+        registration_status: 'confirmed',
+        registration_tx_hash: '0xtx',
+        wallet_address: '0xabc',
+        token_id: null
+      });
+      assertEqual(updated.token_id, '77');
+    } finally {
+      ArcIdentityService.fetchTokenIdFromChain = originalFetch;
+      ArcIdentityService.update = originalUpdate;
+    }
+  });
+});
+
+describe('DM Helpers', () => {
+  test('normalizeOwnerHandle accepts raw and prefixed handles', () => {
+    assertEqual(DmService.normalizeOwnerHandle('@Alice'), 'alice');
+    assertEqual(DmService.normalizeOwnerHandle('Bob'), 'bob');
+  });
+});
+
+describe('Route Mounts', () => {
+  test('api router mounts hubs alias alongside submolts', () => {
+    const routePatterns = apiRoutes.stack
+      .filter((layer) => layer && layer.regexp)
+      .map((layer) => String(layer.regexp));
+
+    assert(routePatterns.some((pattern) => pattern.includes('hubs')), 'Expected /hubs router mount');
+    assert(routePatterns.some((pattern) => pattern.includes('submolts')), 'Expected /submolts router mount');
   });
 });
 
