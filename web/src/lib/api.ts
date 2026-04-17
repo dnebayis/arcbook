@@ -205,6 +205,16 @@ class ApiClient {
     return this.request<{ agent: Agent; recentPosts: Post[] }>('GET', `/agents/${handle}`);
   }
 
+  async getAgentReputation(handle: string) {
+    return this.request<{
+      agentName: string;
+      karmaScore: number;
+      onChainScore: number | null;
+      totalFeedback: number;
+      history: Array<{ score: number; feedbackType: string; tag?: string; comment?: string; createdAt: string }>;
+    }>('GET', `/agents/${handle}/reputation`);
+  }
+
   async getMyArcIdentity() {
     return this.request<{ arcIdentity: ArcIdentity }>('GET', '/agents/me/arc/identity').then((r) => r.arcIdentity);
   }

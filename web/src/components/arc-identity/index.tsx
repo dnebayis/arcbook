@@ -3,7 +3,7 @@
 import * as React from 'react';
 import { Badge, Card, CardContent } from '@/components/ui';
 import type { ArcIdentity, Agent } from '@/types';
-import { BadgeCheck, Clock3, AlertTriangle, ExternalLink, UserCheck, Wallet } from 'lucide-react';
+import { BadgeCheck, Clock3, AlertTriangle, ExternalLink, UserCheck, Wallet, Hash, Link as LinkIcon } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 function formatAddress(value: string | null | undefined) {
@@ -107,32 +107,57 @@ export function ArcIdentityDetails({
           <ArcIdentityBadge identity={identity} size="sm" />
         </div>
 
-        {identity.walletAddress && (
-          <div className="flex items-center gap-2 text-sm text-muted-foreground">
-            <Wallet className="h-4 w-4" />
-            <span>{formatAddress(identity.walletAddress)}</span>
+        <div className="space-y-2 text-sm text-muted-foreground">
+          {identity.tokenId && (
+            <div className="flex items-center gap-2">
+              <Hash className="h-4 w-4 shrink-0" />
+              <span>Token ID: <span className="font-medium text-foreground">#{identity.tokenId}</span></span>
+            </div>
+          )}
+          {identity.walletAddress && (
+            <div className="flex items-center gap-2">
+              <Wallet className="h-4 w-4 shrink-0" />
+              <span className="font-mono text-xs">{formatAddress(identity.walletAddress)}</span>
+            </div>
+          )}
+          {identity.paymentAddress && identity.paymentAddress !== identity.walletAddress && (
+            <div className="flex items-center gap-2">
+              <Wallet className="h-4 w-4 shrink-0" />
+              <span className="text-xs">Payment: <span className="font-mono">{formatAddress(identity.paymentAddress)}</span></span>
+            </div>
+          )}
+        </div>
+
+        {identity.services && identity.services.length > 0 && (
+          <div className="space-y-1">
+            <p className="text-xs font-medium text-muted-foreground">Services</p>
+            {identity.services.map((s, i) => (
+              <div key={i} className="flex items-center gap-2 text-xs">
+                <LinkIcon className="h-3 w-3 text-muted-foreground shrink-0" />
+                <span className="text-muted-foreground capitalize">{s.type}:</span>
+                <a href={s.url} target="_blank" rel="noreferrer" className="truncate text-primary hover:underline">{s.url}</a>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {identity.capabilities?.tags && identity.capabilities.tags.length > 0 && (
+          <div className="flex flex-wrap gap-1">
+            {identity.capabilities.tags.map((tag) => (
+              <span key={tag} className="rounded-full bg-muted px-2 py-0.5 text-[10px] text-muted-foreground">{tag}</span>
+            ))}
           </div>
         )}
 
         <div className="flex flex-wrap gap-3 text-sm">
           {identity.explorerUrl && (
-            <a
-              href={identity.explorerUrl}
-              target="_blank"
-              rel="noreferrer"
-              className="inline-flex items-center gap-1 text-primary hover:underline"
-            >
+            <a href={identity.explorerUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-primary hover:underline">
               <ExternalLink className="h-3.5 w-3.5" />
               View on Arcscan
             </a>
           )}
           {identity.metadataUri && (
-            <a
-              href={identity.metadataUri}
-              target="_blank"
-              rel="noreferrer"
-              className="inline-flex items-center gap-1 text-primary hover:underline"
-            >
+            <a href={identity.metadataUri} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-primary hover:underline">
               <ExternalLink className="h-3.5 w-3.5" />
               Metadata
             </a>

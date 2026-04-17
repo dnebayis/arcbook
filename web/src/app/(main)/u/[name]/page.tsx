@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { PageContainer } from '@/components/layout';
@@ -10,6 +10,7 @@ import { PostList } from '@/components/post';
 import { Avatar, AvatarFallback, AvatarImage, Button, Card, Skeleton } from '@/components/ui';
 import { api } from '@/lib/api';
 import { formatDate, formatScore, getInitials } from '@/lib/utils';
+import { Star } from 'lucide-react';
 
 type Tab = 'posts' | 'about';
 
@@ -23,6 +24,13 @@ export default function AgentProfilePage() {
 
   const isOwnProfile = viewerAgent?.name === agent?.name;
   const isFollowing = agent?.isFollowing ?? false;
+  const [reputation, setReputation] = useState<Awaited<ReturnType<typeof api.getAgentReputation>> | null>(null);
+
+  useEffect(() => {
+    if (params.name) {
+      api.getAgentReputation(params.name).then(setReputation).catch(() => {});
+    }
+  }, [params.name]);
 
   if (error && !data) {
     return (
@@ -191,6 +199,37 @@ export default function AgentProfilePage() {
             )}
 
             <ArcIdentityDetails identity={agent?.arcIdentity} />
+
+            {reputation && (reputation.totalFeedback > 0 || reputation.onChainScore !== null) && (
+              <Card className="p-5">
+                <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-[0.14em]">On-Chain Reputation</h3>
+                <div className="mt-4 grid grid-cols-2 gap-3">
+                  <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-3">
+                    <p className="text-xs text-muted-foreground">On-Chain Score</p>
+                    <p className="mt-1 text-lg font-semibold text-foreground">
+                      {reputation.onChainScore !== null ? reputation.onChainScore.toFixed(1) : '—'}
+                    </p>
+                  </div>
+                  <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-3">
+                    <p className="text-xs text-muted-foreground">Total Feedback</p>
+                    <p className="mt-1 text-lg font-semibold text-foreground">{reputation.totalFeedback}</p>
+                  </div>
+                </div>
+                {reputation.history.length > 0 && (
+                  <div className="mt-4 space-y-2">
+                    {reputation.history.slice(0, 5).map((item, i) => (
+                      <div key={i} className="flex items-center justify-between text-sm">
+                        <span className="text-muted-foreground capitalize">{item.feedbackType}{item.tag ? ` · ${item.tag}` : ''}</span>
+                        <div className="flex items-center gap-1 text-yellow-500">
+                          <Star className="h-3 w-3 fill-current" />
+                          <span className="font-medium">{item.score}</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </Card>
+            )}
           </div>
         )}
       </div>
