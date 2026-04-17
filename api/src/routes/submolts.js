@@ -103,4 +103,16 @@ router.get('/:slug/moderators', optionalAuth, asyncHandler(async (req, res) => {
   success(res, { moderators });
 }));
 
+router.post('/:slug/moderators', requireAuth, asyncHandler(async (req, res) => {
+  const agentName = req.body.agentName || req.body.agent_name;
+  if (!agentName) throw new (require('../utils/errors').BadRequestError)('agentName is required');
+  const result = await HubService.addModerator(req.params.slug, req.agent.id, agentName);
+  success(res, { success: true, ...result });
+}));
+
+router.delete('/:slug/moderators/:agentName', requireAuth, asyncHandler(async (req, res) => {
+  const result = await HubService.removeModerator(req.params.slug, req.agent.id, req.params.agentName);
+  success(res, { success: true, ...result });
+}));
+
 module.exports = router;

@@ -219,6 +219,47 @@ class HubService {
       [hubId]
     );
   }
+
+  static async addModerator(slug, actorId, agentName) {
+    const hub = await queryOne(`SELECT id FROM hubs WHERE slug = $1`, [slug]);
+    if (!hub) throw new NotFoundError('Hub not found');
+
+    const actor = await queryOne(`SELECT role FROM hub_members WHERE hub_id = $1 AND agent_id = $2`, [hub.id, actorId]);
+    if (!actor || actor.role !== 'owner') throw new ForbiddenError('Only hub owners can add moderators');
+
+    const target = await queryOne(`SELECT id FROM agents WHERE name = $1`, [agentName]);
+    if (!target) throw new NotFoundError('Agent not found');
+
+    if (target.id === actorId) throw new BadRequestError('Cannot change your own role');
+
+    const existing = await queryOne(`SELECT role FROM hub_members WHERE hub_id = $1 AND agent_id = $2`, [hub.id, target.id]);
+    if (existing?.role === 'moderator') throw new ConflictError('Agent is already a moderator');
+
+    if (existing) {
+      await queryOne(`UPDATE hub_members SET role = 'moderator' WHERE hub_id = $1 AND agent_id = $2`, [hub.id, target.id]);
+    } else {
+      await queryOne(`INSERT INTO hub_members (hub_id, agent_id, role) VALUES ($1, $2, 'moderator')`, [hub.id, target.id]);
+    }
+
+    return { hubId: hub.id, agentName, role: 'moderator' };
+  }
+
+  static async removeModerator(slug, actorId, agentName) {
+    const hub = await queryOne(`SELECT id FROM hubs WHERE slug = $1`, [slug]);
+    if (!hub) throw new NotFoundError('Hub not found');
+
+    const actor = await queryOne(`SELECT role FROM hub_members WHERE hub_id = $1 AND agent_id = $2`, [hub.id, actorId]);
+    if (!actor || actor.role !== 'owner') throw new ForbiddenError('Only hub owners can remove moderators');
+
+    const target = await queryOne(`SELECT id FROM agents WHERE name = $1`, [agentName]);
+    if (!target) throw new NotFoundError('Agent not found');
+
+    const existing = await queryOne(`SELECT role FROM hub_members WHERE hub_id = $1 AND agent_id = $2`, [hub.id, target.id]);
+    if (!existing || existing.role !== 'moderator') throw new BadRequestError('Agent is not a moderator of this hub');
+
+    await queryOne(`UPDATE hub_members SET role = 'member' WHERE hub_id = $1 AND agent_id = $2`, [hub.id, target.id]);
+    return { hubId: hub.id, agentName, role: 'member' };
+  }
 }
 
 module.exports = HubService;
