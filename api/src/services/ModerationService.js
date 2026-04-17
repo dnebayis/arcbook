@@ -44,19 +44,33 @@ class ModerationService {
     );
   }
 
-  static async getQueue(actorId) {
+  static async getQueue(actorId, { hubSlug = null, status = 'open', limit = 50, offset = 0 } = {}) {
     const role = await getActorRole(actorId);
+
     if (role === 'admin') {
+      const hubFilter = hubSlug
+        ? `AND EXISTS (
+            SELECT 1 FROM hubs h
+            LEFT JOIN posts p2 ON r.target_type = 'post' AND p2.id::text = r.target_id AND p2.hub_id = h.id
+            LEFT JOIN comments c2 ON r.target_type = 'comment' AND c2.id::text = r.target_id
+            LEFT JOIN posts cp2 ON c2.post_id = cp2.id AND cp2.hub_id = h.id
+            WHERE h.slug = $4 AND (p2.hub_id IS NOT NULL OR cp2.hub_id IS NOT NULL)
+          )`
+        : '';
       return queryAll(
-        `SELECT *
-         FROM reports
-         WHERE status = 'open'
-         ORDER BY created_at DESC`
+        `SELECT * FROM reports r
+         WHERE status = $1 ${hubFilter}
+         ORDER BY created_at DESC LIMIT $2 OFFSET $3`,
+        hubSlug ? [status, limit, offset, hubSlug] : [status, limit, offset]
       );
     }
 
+    const hubCondition = hubSlug
+      ? `AND EXISTS (SELECT 1 FROM hubs h WHERE h.id = hm.hub_id AND h.slug = $3)`
+      : '';
+
     return queryAll(
-      `SELECT r.*
+      `SELECT DISTINCT r.*
        FROM reports r
        LEFT JOIN posts p ON r.target_type = 'post' AND p.id::text = r.target_id
        LEFT JOIN comments c ON r.target_type = 'comment' AND c.id::text = r.target_id
@@ -65,8 +79,9 @@ class ModerationService {
        WHERE r.status = 'open'
          AND hm.role IN ('owner', 'moderator')
          AND hm.hub_id = COALESCE(p.hub_id, cp.hub_id)
-       ORDER BY r.created_at DESC`,
-      [actorId]
+         ${hubCondition}
+       ORDER BY r.created_at DESC LIMIT $2`,
+      hubSlug ? [actorId, limit, hubSlug] : [actorId, limit]
     );
   }
 
