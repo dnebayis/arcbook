@@ -17,6 +17,10 @@ export interface ArcIdentity {
   metadataUri: string | null;
   tokenId?: string | null;
   lastError?: string | null;
+  // ERC-8004 extended fields (OASF)
+  services?: Array<{ type: string; url: string }>;
+  paymentAddress?: string | null;
+  capabilities?: { schema: string; version: string; tags?: string[] } | null;
 }
 
 export interface Anchor {

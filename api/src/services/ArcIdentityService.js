@@ -1,10 +1,13 @@
 const crypto = require('crypto');
+const { createPublicClient, http, parseAbiItem } = require('viem');
+const { arcTestnet } = require('viem/chains');
 const { queryOne } = require('../config/database');
 const config = require('../config');
 const { NotFoundError } = require('../utils/errors');
 const { serializeArcIdentity } = require('../utils/serializers');
 const AgentService = require('./AgentService');
 const WalletService = require('./WalletService');
+const { cacheGet, cacheSet, cacheDel } = require('../utils/cache');
 
 class ArcIdentityService {
   static ensurePublicMetadataBaseUrl() {
@@ -79,22 +82,58 @@ class ArcIdentityService {
   }
 
   static async getPublicByAgentId(agentId) {
-    const row = await this.getByAgentId(agentId);
+    let row = await this.getByAgentId(agentId);
     if (!row) return serializeArcIdentity({});
+
+    row = await this.backfillTokenId(agentId, row);
 
     return serializeArcIdentity(this.prefix(row));
   }
 
   static async getMetadataByAgentName(name) {
+    const cacheKey = `arc:meta:${name}`;
+    const cached = await cacheGet(cacheKey);
+    if (cached) return cached;
+
     const agent = await AgentService.getByHandle(name);
 
-    // ERC-8004 compliant metadata — follows OpenSea/ERC-721 metadata standard
-    // extended with Arc-specific agent properties
-    return {
+    // Fetch wallet address for ERC-8004 payment_address field
+    const walletRow = await queryOne(
+      'SELECT wallet_address FROM agent_wallets WHERE agent_id = $1 ORDER BY created_at DESC LIMIT 1',
+      [agent.id]
+    );
+
+    // Build services array from capabilities JSON (mcp_url, a2a_url fields)
+    let services = [];
+    let capabilityTags = [];
+    if (agent.capabilities) {
+      let caps = agent.capabilities;
+      if (typeof caps === 'string') {
+        try { caps = JSON.parse(caps); } catch { caps = null; }
+      }
+      if (caps && typeof caps === 'object') {
+        if (caps.mcp_url) services.push({ type: 'mcp', url: caps.mcp_url });
+        if (caps.a2a_url) services.push({ type: 'a2a', url: caps.a2a_url });
+        if (Array.isArray(caps.tags)) capabilityTags = caps.tags;
+        // Plain string tags stored as text
+      } else if (typeof caps === 'string' && caps) {
+        capabilityTags = [caps];
+      }
+    }
+
+    // ERC-8004 compliant metadata — OpenSea/ERC-721 extended with OASF capabilities
+    const metadata = {
       name: agent.display_name || agent.name,
       description: agent.description || `Arc identity for @${agent.name} on Arcbook — an AI agent social network on Arc Testnet.`,
       image: agent.avatar_url || null,
       external_url: `${config.app.webBaseUrl}/u/${agent.name}`,
+      services,
+      payment_address: walletRow?.wallet_address || null,
+      capabilities: {
+        schema: 'oasf',
+        version: '1.0',
+        tags: capabilityTags
+      },
       attributes: [
         { trait_type: 'Handle', value: `@${agent.name}` },
         { trait_type: 'Role', value: agent.role || 'member' },
@@ -116,11 +155,80 @@ class ArcIdentityService {
         owner_verified: Boolean(agent.owner_verified)
       }
     };
+
+    await cacheSet(cacheKey, metadata, 120);
+    return metadata;
+  }
+
+  static async invalidateMetadataCache(agentName) {
+    await cacheDel(`arc:meta:${agentName}`);
   }
 
   static getMetadataUri(agentName) {
     // Use publicBaseUrl so Circle/Arc can fetch metadata even when running locally
     return `${config.app.publicBaseUrl}/content/agents/${agentName}/identity`;
+  }
+
+  static createArcPublicClient() {
+    return createPublicClient({
+      chain: { ...arcTestnet, rpcUrls: { default: { http: [config.arc.rpcUrl] } } },
+      transport: http(config.arc.rpcUrl, { timeout: 10_000 })
+    });
+  }
+
+  static async fetchTokenIdFromChain(txHash, ownerAddress) {
+    if (!txHash || !ownerAddress) return null;
+
+    try {
+      const publicClient = this.createArcPublicClient();
+
+      const receipt = await publicClient.getTransactionReceipt({
+        hash: txHash
+      });
+
+      const transferLogs = await publicClient.getLogs({
+        address: config.arc.identityRegistryAddress,
+        event: parseAbiItem(
+          'event Transfer(address indexed from, address indexed to, uint256 indexed tokenId)'
+        ),
+        args: { to: ownerAddress },
+        fromBlock: receipt.blockNumber,
+        toBlock: receipt.blockNumber
+      });
+
+      if (!transferLogs.length) return null;
+
+      const tokenId = transferLogs[transferLogs.length - 1]?.args?.tokenId;
+      return tokenId != null ? tokenId.toString() : null;
+    } catch (err) {
+      console.warn('[ArcIdentity] fetchTokenIdFromChain failed:', err.message);
+      return null;
+    }
+  }
+
+  static async backfillTokenId(agentId, row) {
+    if (
+      !row ||
+      row.token_id ||
+      row.registration_status !== 'confirmed' ||
+      !row.registration_tx_hash ||
+      !row.wallet_address
+    ) {
+      return row;
+    }
+
+    const tokenId = await this.fetchTokenIdFromChain(row.registration_tx_hash, row.wallet_address);
+    if (!tokenId) {
+      return row;
+    }
+
+    const updated = await this.update(agentId, {
+      token_id: tokenId,
+      last_error: null
+    });
+
+    console.log(`[ArcIdentity] Backfilled tokenId ${tokenId} for agent ${agentId}`);
+    return updated || { ...row, token_id: tokenId, last_error: null };
   }
 
   static async registerForAgent(agentId) {
@@ -133,6 +241,7 @@ class ArcIdentityService {
 
     let row = await this.ensureRow(agentId);
     if (row.registration_status === 'confirmed') {
+      row = await this.backfillTokenId(agentId, row);
       return serializeArcIdentity(this.prefix(row));
     }
 
@@ -192,14 +301,26 @@ class ArcIdentityService {
       // 20 attempts × 2500ms = 50s — fits within Vercel's 60s function timeout
       const completed = await WalletService.pollTransaction(transactionId, { maxAttempts: 20, intervalMs: 2500 });
       const txHash = completed.txHash || completed.transactionHash || null;
+      const tokenId = txHash
+        ? await this.fetchTokenIdFromChain(txHash, wallet.wallet_address)
+        : null;
 
       row = await this.update(agentId, {
         wallet_address: wallet.wallet_address,
         registration_status: 'confirmed',
         registration_tx_hash: txHash,
         metadata_uri: metadataUri,
+        token_id: tokenId,
         last_error: null
       });
+
+      row = await this.backfillTokenId(agentId, row);
+
+      if (row?.token_id) {
+        console.log(`[ArcIdentity] Agent ${agentId} registered with tokenId: ${row.token_id}`);
+      } else {
+        console.warn(`[ArcIdentity] Agent ${agentId} confirmed but tokenId is still unavailable; will retry on future reads`);
+      }
 
       return serializeArcIdentity(this.prefix(row));
     } catch (error) {

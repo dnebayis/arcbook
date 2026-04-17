@@ -46,6 +46,12 @@ const config = {
     identityRegistryAddress:
       process.env.ARC_IDENTITY_REGISTRY_ADDRESS ||
       '0x8004A818BFB912233c491871b3d84c89A494BD9e',
+    reputationRegistryAddress:
+      process.env.ARC_REPUTATION_REGISTRY_ADDRESS ||
+      '0x8004B663056A597Dffe9eCcC1965A193B7388713',
+    validationRegistryAddress:
+      process.env.ARC_VALIDATION_REGISTRY_ADDRESS ||
+      '0x8004Cb1BF31DAf7788923b405b754f57acEB4272',
     contentRegistryAddress: process.env.ARC_CONTENT_REGISTRY_ADDRESS || '',
     usdcTokenAddress:
       process.env.ARC_USDC_TOKEN_ADDRESS ||

@@ -9,7 +9,26 @@ const { DeveloperAppService } = require('../services/DeveloperAppService');
 const { registerLimiter } = require('../middleware/rateLimit');
 const { BadRequestError } = require('../utils/errors');
 const { generateIdentityToken, verifyIdentityToken } = require('../utils/auth');
+const { queryAll } = require('../config/database');
 const config = require('../config');
+const ReputationService = require('../services/ReputationService');
+const ValidationService = require('../services/ValidationService');
+
+function buildArcIdentityBlock(row) {
+  if (!row) return null;
+
+  return {
+    agent_id: row.token_id || null,
+    wallet_address: row.wallet_address || null,
+    metadata_uri: row.metadata_uri || null,
+    registration_status: row.registration_status || 'unregistered',
+    tx_hash: row.registration_tx_hash || null,
+    chain_id: row.chain_id || config.arc.chainId,
+    explorer_url: row.registration_tx_hash
+      ? `${config.arc.explorerBaseUrl}/tx/${row.registration_tx_hash}`
+      : null
+  };
+}
 
 function formatRegisterResponse(result) {
   return {
@@ -29,13 +48,14 @@ function formatRegisterResponse(result) {
 const router = Router();
 
 router.post('/register', registerLimiter, asyncHandler(async (req, res) => {
-  const { name, handle, displayName, description, bio, ownerEmail } = req.body;
+  const { name, handle, displayName, description, bio, ownerEmail, capabilities } = req.body;
   const result = await AgentService.register({
     name: name || handle,
     handle: handle || name,
     displayName: displayName || name || handle,
     description: description || bio || '',
-    ownerEmail
+    ownerEmail,
+    capabilities
   });
 
   success(res, formatRegisterResponse(result));
@@ -81,7 +101,8 @@ router.get('/profile', optionalAuth, asyncHandler(async (req, res) => {
 router.get('/', asyncHandler(async (req, res) => {
   const sort = req.query.sort || 'karma';
   const limit = Math.min(Number(req.query.limit) || 10, 50);
-  const agents = await AgentService.list({ sort, limit });
+  const capability = req.query.capability || null;
+  const agents = await AgentService.list({ sort, limit, capability });
   success(res, { agents: agents.map(serializeAgent) });
 }));
 
@@ -177,6 +198,16 @@ router.post('/verify-identity', asyncHandler(async (req, res) => {
   const agent = await AgentService.getById(decoded.agentId);
   if (!agent) throw new BadRequestError('Agent not found');
 
+  let arcIdentityBlock = null;
+  try {
+    const arcIdentityRow = await ArcIdentityService.getByAgentId(agent.id);
+    arcIdentityBlock = buildArcIdentityBlock(
+      await ArcIdentityService.backfillTokenId(agent.id, arcIdentityRow)
+    );
+  } catch (arcErr) {
+    console.warn('[verify-identity] arc identity fetch failed:', arcErr.message);
+  }
+
   success(res, {
     valid: true,
     app: { id: app.id, name: app.name },
@@ -204,7 +235,8 @@ router.post('/verify-identity', asyncHandler(async (req, res) => {
       human: {
         username: agent.owner_handle || null,
         email_verified: Boolean(agent.owner_verified)
-      }
+      },
+      arc_identity: arcIdentityBlock
     }
   });
 }));
@@ -225,6 +257,68 @@ router.get('/:handle/arc-metadata', asyncHandler(async (req, res) => {
   res.status(200).json(metadata);
 }));
 
+// --- Agent Skills ---
+router.get('/:handle/skills', optionalAuth, asyncHandler(async (req, res) => {
+  const agent = await AgentService.getByHandle(req.params.handle);
+  const { queryAll: qa } = require('../config/database');
+  const skills = await qa(
+    `SELECT * FROM agent_skills WHERE agent_id = $1 AND (is_public = true OR $2 = agent_id) ORDER BY created_at DESC`,
+    [agent.id, req.agent?.id || null]
+  );
+  success(res, { skills, count: skills.length });
+}));
+
+// --- On-chain Reputation ---
+router.post('/:handle/reputation/feedback', requireAuth, asyncHandler(async (req, res) => {
+  const { score, feedbackType, tag, comment, evidenceUri } = req.body;
+  const record = await ReputationService.giveFeedback({
+    validatorAgentId: req.agent.id,
+    targetHandle: req.params.handle,
+    score: Number(score),
+    feedbackType: feedbackType || 'general',
+    tag,
+    comment,
+    evidenceUri
+  });
+  success(res, { feedback: record });
+}));
+
+router.get('/:handle/reputation', optionalAuth, asyncHandler(async (req, res) => {
+  const reputation = await ReputationService.getHistory(req.params.handle, {
+    limit: Math.min(Number(req.query.limit) || 20, 100)
+  });
+  success(res, reputation);
+}));
+
+// --- On-chain Validation ---
+router.post('/me/validation/request', requireAuth, asyncHandler(async (req, res) => {
+  const { validatorAddress, targetAgentId, requestDescription } = req.body;
+  const request = await ValidationService.createRequest({
+    ownerAgentId: req.agent.id,
+    validatorAddress,
+    targetAgentId: targetAgentId || req.agent.id,
+    requestDescription
+  });
+  success(res, { request });
+}));
+
+router.post('/validation/respond', requireAuth, asyncHandler(async (req, res) => {
+  const { requestHash, response, responseDescription, tag } = req.body;
+  const result = await ValidationService.submitResponse({
+    validatorAgentId: req.agent.id,
+    requestHash,
+    response: Number(response),
+    responseDescription,
+    tag
+  });
+  success(res, { validation: result });
+}));
+
+router.get('/validation/:hash/status', optionalAuth, asyncHandler(async (req, res) => {
+  const status = await ValidationService.getStatus(req.params.hash);
+  success(res, { validation: status });
+}));
+
 router.get('/:handle', optionalAuth, asyncHandler(async (req, res) => {
   const profile = await AgentService.getProfileByName(req.params.handle, req.agent?.id || null);
   success(res, {
@@ -241,5 +335,7 @@ router.get('/:handle', optionalAuth, asyncHandler(async (req, res) => {
     }))
   });
 }));
+
+router.buildArcIdentityBlock = buildArcIdentityBlock;
 
 module.exports = router;

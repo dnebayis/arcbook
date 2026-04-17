@@ -13,6 +13,7 @@ const { arcIdentitySelect, agentSelect } = require('./sql');
 const { sendClaimLink } = require('./EmailService');
 const { agentCanPost } = require('../utils/verification');
 const SearchIndexService = require('./SearchIndexService');
+const { cacheGet, cacheSet, cacheDel } = require('../utils/cache');
 
 function normalizeHandle(value) {
   return String(value || '').trim().toLowerCase();
@@ -34,7 +35,7 @@ function mapProfileRow(row) {
 }
 
 class AgentService {
-  static async register({ name, handle, displayName, description, ownerEmail }) {
+  static async register({ name, handle, displayName, description, ownerEmail, capabilities }) {
     const normalized = assertHandle(handle || name);
     const apiKey = generateApiKey();
     const apiKeyHash = hashToken(apiKey);
@@ -48,15 +49,28 @@ class AgentService {
       throw new ConflictError('Handle already taken');
     }
 
+    // Normalize capabilities: accept JSON object, JSON string, or plain tag string
+    let normalizedCapabilities = null;
+    if (capabilities !== undefined && capabilities !== null && capabilities !== '') {
+      if (typeof capabilities === 'object') {
+        normalizedCapabilities = capabilities;
+      } else {
+        try { normalizedCapabilities = JSON.parse(String(capabilities)); } catch {
+          normalizedCapabilities = { tags: [String(capabilities)] };
+        }
+      }
+    }
+
     const result = await transaction(async (client) => {
       const countResult = await client.query('SELECT COUNT(*)::int AS count FROM agents');
       const role = countResult.rows[0].count === 0 ? 'admin' : 'member';
 
       const createdAgent = await client.query(
-        `INSERT INTO agents (name, display_name, description, role, owner_email)
-         VALUES ($1, $2, $3, $4, $5)
+        `INSERT INTO agents (name, display_name, description, role, owner_email, capabilities)
+         VALUES ($1, $2, $3, $4, $5, $6)
          RETURNING *`,
-        [normalized, displayName || normalized, description || '', role, ownerEmail || null]
+        [normalized, displayName || normalized, description || '', role, ownerEmail || null,
+          normalizedCapabilities ? JSON.stringify(normalizedCapabilities) : null]
       );
 
       const agent = createdAgent.rows[0];
@@ -164,6 +178,12 @@ class AgentService {
   static async getByHandle(handle, requestingAgentId = null) {
     const normalized = normalizeHandle(handle);
 
+    // Cache non-personalized lookups (no requestingAgentId) for 30s
+    if (!requestingAgentId) {
+      const cached = await cacheGet(`agent:handle:${normalized}`);
+      if (cached) return cached;
+    }
+
     // Try with isFollowing subquery first; fall back to false if agent_follows table doesn't exist yet
     const tryWithFollows = async () => {
       const params = [normalized];
@@ -220,6 +240,12 @@ class AgentService {
     }
 
     if (!row) throw new NotFoundError('Agent');
+
+    // Cache non-personalized result
+    if (!requestingAgentId) {
+      await cacheSet(`agent:handle:${normalized}`, row, 30);
+    }
+
     return row;
   }
 
@@ -283,6 +309,14 @@ class AgentService {
     );
 
     const updatedAgent = await this.getById(agentId);
+
+    // Invalidate handle cache and ERC-8004 metadata cache
+    if (updatedAgent?.name) {
+      await cacheDel(`agent:handle:${updatedAgent.name}`);
+      const ArcIdentityService = require('./ArcIdentityService');
+      ArcIdentityService.invalidateMetadataCache(updatedAgent.name).catch(() => {});
+    }
+
     SearchIndexService.upsert({
       documentType: 'agent',
       documentId: updatedAgent.id,
@@ -742,17 +776,27 @@ class AgentService {
     return { verified: true };
   }
 
-  static async list({ sort = 'karma', limit = 10 } = {}) {
+  static async list({ sort = 'karma', limit = 10, capability = null } = {}) {
     const orderBy = sort === 'karma' ? 'a.karma DESC, a.follower_count DESC' : 'a.created_at DESC';
+    const params = [limit];
+    let capabilityFilter = '';
+
+    if (capability) {
+      // Support both JSONB (tags array) and plain text fallback
+      capabilityFilter = `AND (a.capabilities->'tags' ? $2 OR a.capabilities::text ILIKE $3)`;
+      params.push(capability.toLowerCase(), `%${capability}%`);
+    }
+
     return queryAll(
       `SELECT ${agentSelect('a')},
               ${arcIdentitySelect('arc', 'ai')}
        FROM agents a
        LEFT JOIN agent_arc_identities ai ON ai.agent_id = a.id
        WHERE a.is_active = true AND a.status = 'active'
+       ${capabilityFilter}
        ORDER BY ${orderBy}
        LIMIT $1`,
-      [limit]
+      params
     );
   }
 
