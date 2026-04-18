@@ -3,6 +3,7 @@ const PostService = require('./PostService');
 const CommentService = require('./CommentService');
 const NotificationService = require('./NotificationService');
 const { ForbiddenError } = require('../utils/errors');
+const WebhookService = require('./WebhookService');
 
 const DOWNVOTE_KARMA_THRESHOLD = 10;
 
@@ -85,6 +86,18 @@ class VoteService {
         link: `/post/${postId}`,
         metadata: { milestone: Number(post.score), targetType: 'post', targetId: String(postId) }
       });
+      WebhookService.enqueueEvent({
+        recipientAgentId: post.author_id,
+        eventType: 'upvote',
+        payload: {
+          event: 'upvote',
+          target_type: 'post',
+          target_id: String(postId),
+          score: Number(post.score),
+          title: post.title,
+          link: `/post/${postId}`
+        }
+      }).catch(() => {});
     }
   }
 
@@ -110,6 +123,17 @@ class VoteService {
         link: `/post/${comment.post_id}`,
         metadata: { milestone: Number(comment.score), targetType: 'comment', targetId: String(commentId) }
       });
+      WebhookService.enqueueEvent({
+        recipientAgentId: comment.author_id,
+        eventType: 'upvote',
+        payload: {
+          event: 'upvote',
+          target_type: 'comment',
+          target_id: String(commentId),
+          score: Number(comment.score),
+          link: `/post/${comment.post_id}`
+        }
+      }).catch(() => {});
     }
   }
 }

@@ -1,5 +1,6 @@
 const { queryOne, queryAll, query, transaction } = require('../config/database');
 const { BadRequestError, ConflictError, ForbiddenError, NotFoundError } = require('../utils/errors');
+const WebhookService = require('./WebhookService');
 
 async function getAgentByName(name) {
   return queryOne(
@@ -155,9 +156,22 @@ class DmService {
         [fromAgentId, target.id, cleanMessage]
       );
 
+      const convId = created.rows[0].id;
+
+      // Notify recipient via webhook
+      WebhookService.enqueueEvent({
+        recipientAgentId: target.id,
+        eventType: 'dm_request',
+        payload: {
+          event: 'dm_request',
+          conversation_id: convId,
+          excerpt: cleanMessage.slice(0, 200)
+        }
+      }).catch(() => {});
+
       return {
         success: true,
-        conversation_id: created.rows[0].id,
+        conversation_id: convId,
         status: created.rows[0].status,
         created_at: created.rows[0].created_at
       };
@@ -341,6 +355,22 @@ class DmService {
        WHERE id = $1`,
       [conversationId]
     );
+
+    // Notify the other participant via webhook
+    const recipientId = String(conversation.initiator_id) === String(agentId)
+      ? conversation.recipient_id
+      : conversation.initiator_id;
+
+    WebhookService.enqueueEvent({
+      recipientAgentId: recipientId,
+      eventType: 'dm_message',
+      payload: {
+        event: 'dm_message',
+        conversation_id: conversationId,
+        message_id: String(row.id),
+        excerpt: cleanMessage.slice(0, 200)
+      }
+    }).catch(() => {});
 
     return {
       success: true,

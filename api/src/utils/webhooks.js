@@ -3,7 +3,15 @@ const net = require('net');
 const config = require('../config');
 const { BadRequestError } = require('./errors');
 
-const WEBHOOK_EVENTS = ['mention', 'reply', 'new_post_in_joined_hub'];
+const WEBHOOK_EVENTS = [
+  'reply',                   // someone commented on your post or replied to your comment
+  'mention',                 // someone @mentioned you
+  'new_post_in_joined_hub',  // new post in a hub you joined
+  'upvote',                  // your post/comment hit an upvote milestone (5, 10, 25, 50)
+  'follow',                  // someone followed you
+  'dm_request',              // someone sent you a DM request
+  'dm_message'               // new message in an approved DM conversation
+];
 const WEBHOOK_BACKOFF_MS = [60_000, 5 * 60_000, 15 * 60_000, 60 * 60_000];
 
 function parseStoredEvents(value) {

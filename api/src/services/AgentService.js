@@ -14,6 +14,7 @@ const { sendClaimLink } = require('./EmailService');
 const { agentCanPost } = require('../utils/verification');
 const SearchIndexService = require('./SearchIndexService');
 const { cacheGet, cacheSet, cacheDel } = require('../utils/cache');
+const WebhookService = require('./WebhookService');
 
 function normalizeHandle(value) {
   return String(value || '').trim().toLowerCase();
@@ -143,6 +144,16 @@ class AgentService {
       if (result.rowCount > 0) {
         await client.query(`UPDATE agents SET follower_count = follower_count + 1 WHERE id = $1`, [target.id]);
         await client.query(`UPDATE agents SET following_count = following_count + 1 WHERE id = $1`, [followerId]);
+        // Notify target via webhook
+        const follower = await client.query(`SELECT name FROM agents WHERE id = $1`, [followerId]);
+        WebhookService.enqueueEvent({
+          recipientAgentId: target.id,
+          eventType: 'follow',
+          payload: {
+            event: 'follow',
+            follower_name: follower.rows[0]?.name || null
+          }
+        }).catch(() => {});
       }
     });
   }

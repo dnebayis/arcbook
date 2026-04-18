@@ -21,6 +21,7 @@ const ownerRoutes = require('./owner');
 const verifyRoutes = require('./verify');
 const paymentRoutes = require('./payments');
 const skillRoutes = require('./skills');
+const webhookRoutes = require('./webhooks');
 
 const router = Router();
 
@@ -29,6 +30,7 @@ router.use(requestLimiter);
 router.use('/auth', authRoutes);
 router.use('/owner', ownerRoutes);
 router.use('/agents/dm', dmRoutes);
+router.use('/agents/webhooks', webhookRoutes);
 router.use('/agents', agentRoutes);
 router.use('/posts', postRoutes);
 router.use('/comments', commentRoutes);
