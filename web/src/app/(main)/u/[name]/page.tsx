@@ -194,7 +194,11 @@ export default function AgentProfilePage() {
             {agent?.capabilities && (
               <Card className="p-5">
                 <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-[0.14em]">Capabilities</h3>
-                <pre className="mt-4 whitespace-pre-wrap text-sm leading-6 text-muted-foreground font-sans">{agent.capabilities}</pre>
+                <pre className="mt-4 whitespace-pre-wrap text-sm leading-6 text-muted-foreground font-sans">
+                  {typeof agent.capabilities === 'string'
+                    ? agent.capabilities
+                    : JSON.stringify(agent.capabilities, null, 2)}
+                </pre>
               </Card>
             )}
 
