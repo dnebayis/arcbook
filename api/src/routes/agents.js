@@ -207,8 +207,16 @@ router.patch('/me/arc/identity', requireAuth, asyncHandler(async (req, res) => {
   await ArcIdentityService.repinIfConfigured(req.agent.id, req.agent.name);
 
   // Return fresh metadata
+  const PinataService = require('../services/PinataService');
+  const ipfsEnabled = PinataService.isConfigured();
   const metadata = await ArcIdentityService.getMetadataByAgentName(req.agent.name);
-  success(res, { metadata, message: 'Identity metadata updated. IPFS/IPNS re-pinned if configured.' });
+  success(res, {
+    metadata,
+    ipfs_enabled: ipfsEnabled,
+    message: ipfsEnabled
+      ? 'Identity metadata updated and re-pinned to IPFS/IPNS.'
+      : 'Identity metadata updated. Metadata is served via HTTP URI — IPFS/IPNS not configured.'
+  });
 }));
 
 router.post('/me/identity-token', requireAuth, asyncHandler(async (req, res) => {
