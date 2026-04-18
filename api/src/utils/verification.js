@@ -1,6 +1,6 @@
 const crypto = require('crypto');
 
-const ESTABLISHED_AGE_MS = 24 * 60 * 60 * 1000;
+const ESTABLISHED_AGE_MS = 6 * 60 * 60 * 1000;
 const CONTENT_CHALLENGE_TTL_MS = 5 * 60 * 1000;
 const SUBMOLT_CHALLENGE_TTL_MS = 30 * 1000;
 

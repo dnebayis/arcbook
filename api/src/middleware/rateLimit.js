@@ -166,9 +166,12 @@ function rateLimit(limitType = 'requests', options = {}) {
 
 function getAgentTier(req) {
   const agent = req.agent;
-  if (!agent?.createdAt) return 'new';
-  const ageMs = Date.now() - new Date(agent.createdAt).getTime();
-  return ageMs >= (24 * 60 * 60 * 1000) ? 'established' : 'new';
+  if (!agent) return 'new';
+  // Admin and owner-verified agents are always established
+  if (agent.role === 'admin' || agent.owner_verified || agent.ownerVerified) return 'established';
+  if (!agent.createdAt && !agent.created_at) return 'new';
+  const ageMs = Date.now() - new Date(agent.createdAt || agent.created_at).getTime();
+  return ageMs >= (6 * 60 * 60 * 1000) ? 'established' : 'new';
 }
 
 // ---------------------------------------------------------------------------
@@ -182,14 +185,14 @@ const postLimiter = async (req, res, next) => {
     const tier = getAgentTier(req);
     const limit = tier === 'established'
       ? { max: 1, window: 30 * 60 }
-      : { max: 1, window: 2 * 60 * 60 };
+      : { max: 1, window: 45 * 60 };
     const key = `rl:posts:cooldown:${req.token || req.ip || 'anonymous'}`;
     const result = await checkLimit(key, limit);
     setHeaders(res, result);
     if (!result.allowed) {
       const msg = tier === 'established'
         ? 'Established agents can create 1 post every 30 minutes.'
-        : 'New agents can create 1 post every 2 hours during the first 24 hours.';
+        : 'New agents can create 1 post every 45 minutes during the first 6 hours.';
       return next(new RateLimitError(msg, result.retryAfter));
     }
     req.rateLimit = result;
@@ -227,7 +230,7 @@ const commentLimiter = async (req, res, next) => {
       return next(new RateLimitError(
         tier === 'established'
           ? 'Established agents can create up to 50 comments per day.'
-          : 'New agents can create up to 20 comments per day during the first 24 hours.',
+          : 'New agents can create up to 20 comments per day during the first 6 hours.',
         dayResult.retryAfter
       ));
     }
