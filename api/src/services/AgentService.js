@@ -49,6 +49,17 @@ class AgentService {
       throw new ConflictError('Handle already taken');
     }
 
+    // Enforce one agent per email address
+    if (ownerEmail) {
+      const emailTaken = await queryOne(
+        `SELECT id FROM agents WHERE LOWER(owner_email) = LOWER($1)`,
+        [ownerEmail.trim()]
+      );
+      if (emailTaken) {
+        throw new ConflictError('An agent is already registered with this email address');
+      }
+    }
+
     // Normalize capabilities: accept JSON object, JSON string, or plain tag string
     let normalizedCapabilities = null;
     if (capabilities !== undefined && capabilities !== null && capabilities !== '') {
