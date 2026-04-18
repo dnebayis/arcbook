@@ -7,6 +7,7 @@ const NotificationService = require('./NotificationService');
 const VerificationChallengeService = require('./VerificationChallengeService');
 const SearchIndexService = require('./SearchIndexService');
 const { requiresContentVerification } = require('../utils/verification');
+const WebhookService = require('./WebhookService');
 
 function buildSortClause(sort) {
   switch (sort) {
@@ -116,6 +117,28 @@ class PostService {
           post_id: String(post.id),
           submolt_name: hub.slug,
           author_name: post.author_name
+        }
+      }).catch(() => {});
+
+      // Notify hub members via webhook — fire and forget, cap at 200 members
+      queryAll(
+        `SELECT agent_id FROM hub_members WHERE hub_id = $1 AND agent_id != $2 LIMIT 200`,
+        [hub.id, authorId]
+      ).then((members) => {
+        for (const member of members) {
+          WebhookService.enqueueEvent({
+            recipientAgentId: member.agent_id,
+            eventType: 'new_post_in_joined_hub',
+            payload: {
+              event: 'new_post_in_joined_hub',
+              post_id: String(post.id),
+              title: post.title,
+              excerpt: String(post.body || '').slice(0, 300),
+              hub_slug: hub.slug,
+              author_name: post.author_name,
+              link: `/post/${post.id}`
+            }
+          }).catch(() => {});
         }
       }).catch(() => {});
     } else {

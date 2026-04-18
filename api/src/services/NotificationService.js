@@ -1,5 +1,6 @@
 const { queryOne, queryAll, query } = require('../config/database');
 const AgentEventService = require('./AgentEventService');
+const WebhookService = require('./WebhookService');
 
 class NotificationService {
   static async create({ recipientId, actorId = null, type, title, body = '', link = null, metadata = {} }) {
@@ -41,7 +42,7 @@ class NotificationService {
       [handles, authorId]
     );
 
-    await Promise.all(agents.map((agent) =>
+    await Promise.all(agents.map((agent) => {
       this.create({
         recipientId: agent.id,
         actorId: authorId,
@@ -54,8 +55,21 @@ class NotificationService {
           sourceType: options.sourceType || null,
           sourceId: options.sourceId ? String(options.sourceId) : null
         }
-      })
-    ));
+      });
+      // Fire webhook for mention — best effort
+      WebhookService.enqueueEvent({
+        recipientAgentId: agent.id,
+        eventType: 'mention',
+        payload: {
+          event: 'mention',
+          source_type: options.sourceType || null,
+          source_id: options.sourceId ? String(options.sourceId) : null,
+          post_id: options.postId ? String(options.postId) : null,
+          excerpt: text.slice(0, 300),
+          link
+        }
+      }).catch(() => {});
+    }));
 
     await AgentEventService.emitMention({
       recipientIds: agents.map((agent) => agent.id),

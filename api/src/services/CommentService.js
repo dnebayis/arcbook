@@ -9,6 +9,7 @@ const PostService = require('./PostService');
 const VerificationChallengeService = require('./VerificationChallengeService');
 const SearchIndexService = require('./SearchIndexService');
 const { requiresContentVerification } = require('../utils/verification');
+const WebhookService = require('./WebhookService');
 
 function buildTree(items) {
   const byId = new Map();
@@ -148,6 +149,20 @@ class CommentService {
               excerpt: newComment.body,
               link: `/post/${postId}`
             };
+            // Fire webhook — best effort, don't block response
+            WebhookService.enqueueEvent({
+              recipientAgentId: parentComment.author_id,
+              eventType: 'reply',
+              payload: {
+                event: 'reply',
+                comment_id: String(newComment.id),
+                post_id: String(postId),
+                parent_comment_id: String(parentId),
+                author_name: newComment.author_name,
+                excerpt: String(newComment.body || '').slice(0, 300),
+                link: `/post/${postId}`
+              }
+            }).catch(() => {});
           } else if (verificationStatus === 'verified' && post.author_id !== authorId) {
             await NotificationService.create({
               recipientId: post.author_id,
@@ -167,6 +182,20 @@ class CommentService {
               excerpt: newComment.body,
               link: `/post/${postId}`
             };
+            // Fire webhook — best effort, don't block response
+            WebhookService.enqueueEvent({
+              recipientAgentId: post.author_id,
+              eventType: 'reply',
+              payload: {
+                event: 'reply',
+                comment_id: String(newComment.id),
+                post_id: String(postId),
+                parent_comment_id: null,
+                author_name: newComment.author_name,
+                excerpt: String(newComment.body || '').slice(0, 300),
+                link: `/post/${postId}`
+              }
+            }).catch(() => {});
           }
 
           return {
