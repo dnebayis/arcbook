@@ -50,8 +50,7 @@ function agentCanPost(value) {
 
 function requiresContentVerification(value, contentType = 'post') {
   if (!agentCanPost(value)) return false;
-  if (contentType === 'verify') return false;
-  return !isTrustedAgent(value);
+  return false;
 }
 
 function buildMathChallenge() {
