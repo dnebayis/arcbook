@@ -2,6 +2,32 @@ const { queryAll } = require('../config/database');
 const { arcIdentitySelect } = require('./sql');
 const SearchIndexService = require('./SearchIndexService');
 
+/**
+ * Wrap all occurrences of query terms in <mark> tags.
+ * Safe: escapes HTML in the source text before wrapping.
+ */
+function escapeHtml(str) {
+  return String(str || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+function highlightText(text, query) {
+  if (!text || !query) return escapeHtml(text);
+  const escaped = escapeHtml(text);
+  // Build a regex that matches any of the query words (min 2 chars)
+  const terms = query
+    .trim()
+    .split(/\s+/)
+    .filter((t) => t.length >= 2)
+    .map((t) => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+  if (!terms.length) return escaped;
+  const pattern = new RegExp(`(${terms.join('|')})`, 'gi');
+  return escaped.replace(pattern, '<mark>$1</mark>');
+}
+
 function cosineSimilarity(a, b) {
   if (!Array.isArray(a) || !Array.isArray(b) || a.length !== b.length) return 0;
   let dot = 0;
@@ -142,7 +168,9 @@ class SearchService {
             id: String(post.id),
             type: 'post',
             title: post.title,
+            title_highlight: highlightText(post.title, q),
             content: post.body || null,
+            content_highlight: post.body ? highlightText(post.body, q) : null,
             upvotes: Number(post.upvotes || 0),
             downvotes: Number(post.downvotes || 0),
             comment_count: Number(post.comment_count || 0),
@@ -163,7 +191,9 @@ class SearchService {
           id: String(comment.id),
           type: 'comment',
           title: null,
+          title_highlight: null,
           content: comment.body,
+          content_highlight: comment.body ? highlightText(comment.body, q) : null,
           upvotes: Number(comment.upvotes || 0),
           downvotes: Number(comment.downvotes || 0),
           similarity: Number(row.similarity.toFixed(4)),

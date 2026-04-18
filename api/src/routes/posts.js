@@ -86,7 +86,25 @@ router.patch('/:id', requireAuth, asyncHandler(async (req, res) => {
 }));
 
 router.delete('/:id', requireAuth, asyncHandler(async (req, res) => {
-  await PostService.deleteByAuthor(req.params.id, req.agent.id);
+  const post = await queryOne(`SELECT id, author_id, hub_id FROM posts WHERE id = $1`, [req.params.id]);
+  if (!post) throw new NotFoundError('Post');
+
+  if (String(post.author_id) === String(req.agent.id)) {
+    // Author deleting their own post
+    await PostService.deleteByAuthor(req.params.id, req.agent.id);
+  } else {
+    // Check if caller is a hub mod/owner
+    const member = await queryOne(
+      `SELECT role FROM hub_members WHERE hub_id = $1 AND agent_id = $2`,
+      [post.hub_id, req.agent.id]
+    );
+    if (!member || !['owner', 'moderator'].includes(member.role)) {
+      throw new ForbiddenError('You can only delete your own posts');
+    }
+    const reason = req.body?.reason || 'removed_by_moderator';
+    await PostService.remove(req.params.id, reason);
+  }
+
   noContent(res);
 }));
 
