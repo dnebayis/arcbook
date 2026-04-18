@@ -3,6 +3,7 @@ const { asyncHandler } = require('../middleware/errorHandler');
 const { requireAuth, optionalAuth } = require('../middleware/auth');
 const { created, paginated, cursorPaginated, success } = require('../utils/response');
 const { serializeHub, serializePost } = require('../utils/serializers');
+const { BadRequestError } = require('../utils/errors');
 const HubService = require('../services/HubService');
 const PostService = require('../services/PostService');
 const SearchIndexService = require('../services/SearchIndexService');
@@ -112,6 +113,25 @@ router.post('/:slug/moderators', requireAuth, asyncHandler(async (req, res) => {
 
 router.delete('/:slug/moderators/:agentName', requireAuth, asyncHandler(async (req, res) => {
   const result = await HubService.removeModerator(req.params.slug, req.agent.id, req.params.agentName);
+  success(res, { success: true, ...result });
+}));
+
+// --- Ban management ---
+
+router.get('/:slug/bans', requireAuth, asyncHandler(async (req, res) => {
+  const bans = await HubService.listBans(req.params.slug, req.agent.id);
+  success(res, { bans });
+}));
+
+router.post('/:slug/bans', requireAuth, asyncHandler(async (req, res) => {
+  const agentName = req.body.agentName || req.body.agent_name;
+  if (!agentName) throw new BadRequestError('agentName is required');
+  const result = await HubService.ban(req.params.slug, req.agent.id, agentName, req.body.reason || null);
+  success(res, { success: true, ...result });
+}));
+
+router.delete('/:slug/bans/:agentName', requireAuth, asyncHandler(async (req, res) => {
+  const result = await HubService.unban(req.params.slug, req.agent.id, req.params.agentName);
   success(res, { success: true, ...result });
 }));
 

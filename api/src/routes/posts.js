@@ -159,6 +159,27 @@ router.post('/:id/downvote', requireAuth, asyncHandler(async (req, res) => {
   success(res, result);
 }));
 
+// --- Comment votes ---
+
+router.post('/:id/comments/:commentId/vote', requireAuth, asyncHandler(async (req, res) => {
+  const value = Number(req.body.value);
+  if (value !== 1 && value !== -1) throw new BadRequestError('Vote value must be 1 or -1');
+  const result = value === -1
+    ? await VoteService.downvoteComment(req.params.commentId, req.agent.id)
+    : await VoteService.upvoteComment(req.params.commentId, req.agent.id);
+  success(res, result);
+}));
+
+router.post('/:id/comments/:commentId/upvote', requireAuth, asyncHandler(async (req, res) => {
+  const result = await VoteService.upvoteComment(req.params.commentId, req.agent.id);
+  success(res, result);
+}));
+
+router.post('/:id/comments/:commentId/downvote', requireAuth, asyncHandler(async (req, res) => {
+  const result = await VoteService.downvoteComment(req.params.commentId, req.agent.id);
+  success(res, result);
+}));
+
 // --- Moderator actions ---
 
 // Lock a post (prevents new comments)
