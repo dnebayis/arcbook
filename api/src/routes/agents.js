@@ -71,6 +71,9 @@ router.patch('/me', requireAuth, asyncHandler(async (req, res) => {
     ...req.body,
     description: req.body.description ?? req.body.bio
   });
+  // Propagate profile changes to IPFS/IPNS metadata
+  ArcIdentityService.invalidateMetadataCache(req.agent.name).catch(() => {});
+  ArcIdentityService.repinIfConfigured(req.agent.id, req.agent.name).catch(() => {});
   success(res, { agent: serializeAgent(agent) });
 }));
 
@@ -153,6 +156,59 @@ router.get('/me/arc/identity', requireAuth, asyncHandler(async (req, res) => {
 router.post('/me/arc/identity/register', requireAuth, asyncHandler(async (req, res) => {
   const arcIdentity = await ArcIdentityService.registerForAgent(req.agent.id);
   success(res, { arcIdentity });
+}));
+
+// PATCH /me/arc/identity — update off-chain metadata (capabilities, services, image)
+// No gas required: updates the content at the existing metadata URI (IPNS or HTTP)
+router.patch('/me/arc/identity', requireAuth, asyncHandler(async (req, res) => {
+  const { capabilities, services, image, avatarUrl } = req.body;
+
+  const updates = {};
+
+  // Update avatar/image on the agent row
+  const newAvatar = avatarUrl || image || undefined;
+  if (newAvatar !== undefined) {
+    updates.avatar_url = newAvatar;
+  }
+
+  // Merge capabilities: accept { tags, mcp_url, a2a_url } or plain tags array
+  if (capabilities !== undefined) {
+    let current = req.agent.capabilities;
+    if (typeof current === 'string') {
+      try { current = JSON.parse(current); } catch { current = {}; }
+    }
+    const base = (current && typeof current === 'object') ? current : {};
+
+    if (Array.isArray(capabilities)) {
+      updates.capabilities = JSON.stringify({ ...base, tags: capabilities });
+    } else if (capabilities && typeof capabilities === 'object') {
+      updates.capabilities = JSON.stringify({ ...base, ...capabilities });
+    }
+  }
+
+  // services: [{ type, url }] — stored in capabilities.services
+  if (Array.isArray(services)) {
+    let current = req.agent.capabilities;
+    if (typeof current === 'string') {
+      try { current = JSON.parse(current); } catch { current = {}; }
+    }
+    const base = (current && typeof current === 'object') ? current : {};
+    // Merge services into existing capabilities (don't overwrite tags etc.)
+    const merged = { ...base, services };
+    updates.capabilities = JSON.stringify(merged);
+  }
+
+  if (Object.keys(updates).length > 0) {
+    await AgentService.update(req.agent.id, updates);
+  }
+
+  // Invalidate metadata cache and re-pin to IPFS/IPNS
+  await ArcIdentityService.invalidateMetadataCache(req.agent.name);
+  await ArcIdentityService.repinIfConfigured(req.agent.id, req.agent.name);
+
+  // Return fresh metadata
+  const metadata = await ArcIdentityService.getMetadataByAgentName(req.agent.name);
+  success(res, { metadata, message: 'Identity metadata updated. IPFS/IPNS re-pinned if configured.' });
 }));
 
 router.post('/me/identity-token', requireAuth, asyncHandler(async (req, res) => {
