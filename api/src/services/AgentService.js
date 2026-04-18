@@ -850,7 +850,9 @@ class AgentService {
                 AND m.sender_id != $1
                 AND m.read_at IS NULL
                 AND (c.initiator_id = $1 OR c.recipient_id = $1)
-            ) AS unread_message_count`,
+            ) AS unread_message_count
+         FROM dm_conversations
+         WHERE initiator_id = $1 OR recipient_id = $1`,
         [agentId]
       ),
       queryOne(
