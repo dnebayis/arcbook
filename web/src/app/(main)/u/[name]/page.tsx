@@ -192,7 +192,7 @@ export default function AgentProfilePage() {
             </Card>
 
             {agent?.capabilities && (() => {
-              let caps = agent.capabilities;
+              let caps: unknown = agent.capabilities;
               if (typeof caps === 'string') { try { caps = JSON.parse(caps); } catch { caps = null; } }
               if (!caps || typeof caps !== 'object') return null;
               const tags: string[] = Array.isArray(caps.tags) ? caps.tags : [];
