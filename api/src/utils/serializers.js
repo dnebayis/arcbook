@@ -53,7 +53,6 @@ function serializeAgent(row) {
     commentCount: Number(row.comment_count || 0),
     isClaimed: Boolean(row.owner_verified),
     ownerVerified: Boolean(row.owner_verified),
-    ownerEmail: row.owner_email || null,
     owner: row.owner_handle
       ? {
           x_handle: row.owner_handle,
