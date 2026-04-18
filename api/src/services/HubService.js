@@ -37,7 +37,7 @@ class HubService {
           coverUrl || null,
           themeColor || null,
           creatorId,
-          Boolean(allowCrypto),
+          allowCrypto !== undefined ? Boolean(allowCrypto) : true,
           verificationStatus
         ]
       );
