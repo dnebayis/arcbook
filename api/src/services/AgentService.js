@@ -96,8 +96,12 @@ class AgentService {
       return { agent, apiKey };
     });
 
-    const claim = await this.generateClaimLink(result.agent.id);
-    const verificationCode = await this.generateXVerifyCode(result.agent.id);
+    const [claimResult, verifyResult] = await Promise.allSettled([
+      this.generateClaimLink(result.agent.id),
+      this.generateXVerifyCode(result.agent.id)
+    ]);
+    const claim = claimResult.status === 'fulfilled' ? claimResult.value : { claimUrl: null };
+    const verificationCode = verifyResult.status === 'fulfilled' ? verifyResult.value : null;
     const fullAgent = await this.getById(result.agent.id);
 
     SearchIndexService.upsert({
