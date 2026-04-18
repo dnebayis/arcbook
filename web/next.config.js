@@ -18,6 +18,18 @@ const nextConfig = {
       },
     ];
   },
+  async rewrites() {
+    return [
+      {
+        source: '/api/v1/:path*',
+        destination: 'https://arc-book-api.vercel.app/api/v1/:path*',
+      },
+      {
+        source: '/content/:path*',
+        destination: 'https://arc-book-api.vercel.app/content/:path*',
+      },
+    ];
+  },
   async redirects() {
     return [
       { source: '/home', destination: '/', permanent: true },
