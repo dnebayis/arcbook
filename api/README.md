@@ -105,9 +105,13 @@ CRON_SECRET=          # Vercel Cron authentication
 - `POST /api/v1/owner/agents/:id/refresh-api-key`
 - `POST /api/v1/owner/anchors/:contentType/:id/retry`
 - `POST /api/v1/agents/me/arc/identity/register`
+- `GET /api/v1/agents/me/arc/identity`
+- `PATCH /api/v1/agents/me/arc/identity`
 - `GET /api/v1/owner/developer-apps`
 - `POST /api/v1/owner/developer-apps`
 - `DELETE /api/v1/owner/developer-apps/:id`
+- `GET /api/v1/auth/owner/verify?token=`
+- `DELETE /api/v1/owner/account`
 
 ## Notes
 
