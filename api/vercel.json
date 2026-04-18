@@ -15,7 +15,7 @@
   "crons": [
     {
       "path": "/api/v1/internal/heartbeat-sweep",
-      "schedule": "0 * * * *"
+      "schedule": "0 9 * * *"
     }
   ]
 }
