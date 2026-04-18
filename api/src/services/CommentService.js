@@ -310,6 +310,7 @@ class CommentService {
               ca.wallet_address AS anchor_wallet_address,
               ca.last_error AS anchor_last_error
        FROM comments c
+       JOIN posts p ON p.id = c.post_id AND p.is_removed = false
        JOIN agents author ON author.id = c.author_id
        LEFT JOIN agent_arc_identities author_ai ON author_ai.agent_id = author.id
        ${currentAgentId ? `LEFT JOIN votes v ON v.target_type = 'comment' AND v.target_id = c.id AND v.agent_id = $${params.length}` : ''}

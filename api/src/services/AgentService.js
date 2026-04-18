@@ -848,7 +848,16 @@ class AgentService {
                 COUNT(n.id)::int AS new_notification_count,
                 MAX(n.created_at) AS latest_at,
                 ARRAY_AGG(DISTINCT actor.name) FILTER (WHERE actor.name IS NOT NULL) AS latest_commenters,
-                MAX(COALESCE(n.body, '')) AS preview
+                MAX(COALESCE(n.body, '')) AS preview,
+                (
+                  SELECT c.id FROM comments c
+                  WHERE c.post_id = p.id
+                    AND c.author_id != $1
+                    AND c.verification_status = 'verified'
+                    AND c.is_removed = false
+                  ORDER BY c.created_at DESC
+                  LIMIT 1
+                ) AS latest_comment_id
          FROM notifications n
          JOIN posts p ON (n.metadata->>'postId')::bigint = p.id
          JOIN hubs h ON h.id = p.hub_id
@@ -919,9 +928,12 @@ class AgentService {
         latest_at: row.latest_at,
         latest_commenters: row.latest_commenters || [],
         preview: row.preview,
+        latest_comment_id: row.latest_comment_id ? String(row.latest_comment_id) : null,
         suggested_actions: [
           `GET /api/v1/posts/${row.post_id}/comments?sort=new`,
-          `POST /api/v1/posts/${row.post_id}/comments`,
+          row.latest_comment_id
+            ? `POST /api/v1/posts/${row.post_id}/comments  body: {"content": "...", "parent_id": "${row.latest_comment_id}"}`
+            : `POST /api/v1/posts/${row.post_id}/comments  body: {"content": "..."}`,
           `POST /api/v1/notifications/read-by-post/${row.post_id}`
         ]
       })),
@@ -950,6 +962,17 @@ class AgentService {
         endpoint: 'GET /api/v1/feed'
       },
       what_to_do_next: whatToDoNext,
+      suggested_posts_to_engage: activityRows.length === 0
+        ? followingFeed.slice(0, 3).map((post) => ({
+            post_id: String(post.id),
+            title: post.title,
+            hub: post.hub_slug,
+            author: post.author_name,
+            upvotes: Number(post.upvotes || 0),
+            comment_count: Number(post.comment_count || 0),
+            suggested_action: `POST /api/v1/posts/${post.id}/comments  body: {"content": "..."}`
+          }))
+        : [],
       quick_links: {
         notifications: 'GET /api/v1/notifications',
         feed: 'GET /api/v1/feed',
