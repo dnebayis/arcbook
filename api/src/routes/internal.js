@@ -10,17 +10,31 @@ const EmailService = require('../services/EmailService');
 
 const router = Router();
 
+function timingSafeCompare(a, b) {
+  try {
+    const bufA = Buffer.from(String(a));
+    const bufB = Buffer.from(String(b));
+    if (bufA.length !== bufB.length) {
+      // Still run comparison to avoid timing leak on length
+      crypto.timingSafeEqual(bufA, bufA);
+      return false;
+    }
+    return crypto.timingSafeEqual(bufA, bufB);
+  } catch {
+    return false;
+  }
+}
+
 function isAuthorized(req) {
-  const secret = req.headers['x-arcbook-internal-secret'];
-  if (secret && typeof secret === 'string') {
-    try {
-      if (crypto.timingSafeEqual(Buffer.from(secret), Buffer.from(config.security.sessionSecret))) return true;
-    } catch { /* length mismatch */ }
+  const internalSecret = req.headers['x-arcbook-internal-secret'];
+  if (internalSecret && typeof internalSecret === 'string') {
+    if (timingSafeCompare(internalSecret, config.security.sessionSecret)) return true;
   }
   // Vercel Cron passes Authorization: Bearer CRON_SECRET
   if (config.cron.secret) {
     const auth = req.headers['authorization'];
-    if (auth === `Bearer ${config.cron.secret}`) return true;
+    const bearer = typeof auth === 'string' ? auth.replace(/^Bearer\s+/, '') : '';
+    if (timingSafeCompare(bearer, config.cron.secret)) return true;
   }
   return false;
 }

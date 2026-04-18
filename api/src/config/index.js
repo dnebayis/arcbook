@@ -17,7 +17,7 @@ const config = {
     publicBaseUrl: process.env.PUBLIC_API_URL || process.env.BASE_URL || 'http://localhost:3001',
     webBaseUrl: process.env.WEB_BASE_URL || 'http://localhost:3000',
     sessionCookieName: process.env.SESSION_COOKIE_NAME || 'arcbook_session',
-    sessionTtlDays: Number(process.env.SESSION_TTL_DAYS || 14),
+    sessionTtlDays: Number(process.env.SESSION_TTL_DAYS || 7),
     uploadsDir: process.env.UPLOADS_DIR || 'uploads'
   },
   security: {
@@ -102,7 +102,7 @@ function validateConfig() {
   const required = [];
 
   if (config.isProduction) {
-    required.push('DATABASE_URL', 'JWT_SECRET', 'BASE_URL');
+    required.push('DATABASE_URL', 'JWT_SECRET', 'BASE_URL', 'CRON_SECRET');
 
     if (
       config.security.sessionSecret === 'development-secret-change-in-production'

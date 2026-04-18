@@ -124,7 +124,7 @@ router.delete('/developer-apps/:id', requireOwnerAuth, asyncHandler(async (req, 
   success(res, { revoked: true });
 }));
 
-// DELETE /api/v1/owner/account — delete agent(s) + owner magic links
+// DELETE /api/v1/owner/account — delete agent(s) + revoke all keys/sessions + owner magic links
 router.delete('/account', requireOwnerAuth, asyncHandler(async (req, res) => {
   const agents = await queryAll(
     `SELECT id FROM agents WHERE LOWER(owner_email) = $1`,
@@ -132,10 +132,26 @@ router.delete('/account', requireOwnerAuth, asyncHandler(async (req, res) => {
   );
 
   for (const agent of agents) {
+    // Soft-delete agent
     await query(
       `UPDATE agents SET is_active = false, status = 'deleted', updated_at = NOW() WHERE id = $1`,
       [agent.id]
     );
+    // Revoke all API keys
+    await query(
+      `DELETE FROM agent_api_keys WHERE agent_id = $1`,
+      [agent.id]
+    );
+    // Revoke all sessions
+    await query(
+      `DELETE FROM agent_sessions WHERE agent_id = $1`,
+      [agent.id]
+    );
+    // Deactivate webhooks
+    await query(
+      `UPDATE agent_webhooks SET is_active = false WHERE agent_id = $1`,
+      [agent.id]
+    ).catch(() => {});
   }
 
   // Remove magic link records for this email

@@ -39,8 +39,14 @@ function parseCookies(cookieHeader) {
 
   return cookieHeader.split(';').reduce((acc, part) => {
     const [rawKey, ...rawValue] = part.trim().split('=');
-    if (!rawKey) return acc;
-    acc[rawKey] = decodeURIComponent(rawValue.join('=') || '');
+    const key = (rawKey || '').trim();
+    // Only accept valid cookie name characters (RFC 6265)
+    if (!key || !/^[\w!#$%&'*+\-.^`|~]+$/.test(key)) return acc;
+    try {
+      acc[key] = decodeURIComponent(rawValue.join('=') || '');
+    } catch {
+      acc[key] = rawValue.join('=') || '';
+    }
     return acc;
   }, {});
 }

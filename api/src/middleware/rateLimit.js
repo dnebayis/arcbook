@@ -127,7 +127,11 @@ function setHeaders(res, result) {
 }
 
 function getKey(req, limitType) {
-  const identifier = req.token || req.ip || 'anonymous';
+  // Prefer API token, then real IP (x-forwarded-for for Vercel), then fallback
+  const identifier = req.token
+    || req.headers['x-forwarded-for']?.split(',')[0]?.trim()
+    || req.ip
+    || 'unknown';
   return `rl:${limitType}:${identifier}`;
 }
 
