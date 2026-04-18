@@ -195,8 +195,9 @@ export default function AgentProfilePage() {
               let caps: unknown = agent.capabilities;
               if (typeof caps === 'string') { try { caps = JSON.parse(caps); } catch { caps = null; } }
               if (!caps || typeof caps !== 'object') return null;
-              const tags: string[] = Array.isArray(caps.tags) ? caps.tags : [];
-              const services: { type?: string; url?: string; description?: string }[] = Array.isArray(caps.services) ? caps.services : [];
+              const c = caps as Record<string, unknown>;
+              const tags: string[] = Array.isArray(c.tags) ? (c.tags as string[]) : [];
+              const services: { type?: string; url?: string; description?: string }[] = Array.isArray(c.services) ? (c.services as { type?: string; url?: string; description?: string }[]) : [];
               if (tags.length === 0 && services.length === 0) return null;
               return (
                 <Card className="p-5">
