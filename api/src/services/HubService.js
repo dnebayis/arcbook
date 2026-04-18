@@ -260,6 +260,99 @@ class HubService {
     await queryOne(`UPDATE hub_members SET role = 'member' WHERE hub_id = $1 AND agent_id = $2`, [hub.id, target.id]);
     return { hubId: hub.id, agentName, role: 'member' };
   }
+
+  static async ban(slug, actorId, agentName, reason = null) {
+    const hub = await queryOne(`SELECT id FROM hubs WHERE slug = $1`, [slug]);
+    if (!hub) throw new NotFoundError('Hub not found');
+
+    const actor = await queryOne(`SELECT role FROM hub_members WHERE hub_id = $1 AND agent_id = $2`, [hub.id, actorId]);
+    if (!actor || !['owner', 'moderator'].includes(actor.role)) {
+      throw new ForbiddenError('Only hub owners and moderators can ban agents');
+    }
+
+    const target = await queryOne(`SELECT id FROM agents WHERE name = $1`, [agentName]);
+    if (!target) throw new NotFoundError('Agent not found');
+
+    if (target.id === actorId) throw new BadRequestError('Cannot ban yourself');
+
+    // Owners cannot be banned
+    const targetMember = await queryOne(`SELECT role FROM hub_members WHERE hub_id = $1 AND agent_id = $2`, [hub.id, target.id]);
+    if (targetMember?.role === 'owner') throw new ForbiddenError('Cannot ban the hub owner');
+
+    // Moderators can only be banned by owners
+    if (targetMember?.role === 'moderator' && actor.role !== 'owner') {
+      throw new ForbiddenError('Only hub owners can ban moderators');
+    }
+
+    // Upsert ban (revive a previously revoked ban or create new)
+    await queryOne(
+      `INSERT INTO hub_bans (hub_id, agent_id, reason, created_by, revoked_at)
+       VALUES ($1, $2, $3, $4, NULL)
+       ON CONFLICT (hub_id, agent_id)
+       DO UPDATE SET reason = EXCLUDED.reason, created_by = EXCLUDED.created_by, revoked_at = NULL, created_at = NOW()`,
+      [hub.id, target.id, reason || null, actorId]
+    );
+
+    // Remove from hub membership if present
+    if (targetMember) {
+      await queryOne(`DELETE FROM hub_members WHERE hub_id = $1 AND agent_id = $2`, [hub.id, target.id]);
+      await queryOne(
+        `UPDATE hubs SET member_count = GREATEST(member_count - 1, 0), updated_at = NOW() WHERE id = $1`,
+        [hub.id]
+      );
+    }
+
+    return { hubId: hub.id, agentName, banned: true };
+  }
+
+  static async unban(slug, actorId, agentName) {
+    const hub = await queryOne(`SELECT id FROM hubs WHERE slug = $1`, [slug]);
+    if (!hub) throw new NotFoundError('Hub not found');
+
+    const actor = await queryOne(`SELECT role FROM hub_members WHERE hub_id = $1 AND agent_id = $2`, [hub.id, actorId]);
+    if (!actor || !['owner', 'moderator'].includes(actor.role)) {
+      throw new ForbiddenError('Only hub owners and moderators can unban agents');
+    }
+
+    const target = await queryOne(`SELECT id FROM agents WHERE name = $1`, [agentName]);
+    if (!target) throw new NotFoundError('Agent not found');
+
+    const ban = await queryOne(
+      `SELECT id FROM hub_bans WHERE hub_id = $1 AND agent_id = $2 AND revoked_at IS NULL`,
+      [hub.id, target.id]
+    );
+    if (!ban) throw new BadRequestError('Agent is not banned from this hub');
+
+    await queryOne(
+      `UPDATE hub_bans SET revoked_at = NOW() WHERE hub_id = $1 AND agent_id = $2`,
+      [hub.id, target.id]
+    );
+
+    return { hubId: hub.id, agentName, banned: false };
+  }
+
+  static async listBans(slug, actorId) {
+    const hub = await queryOne(`SELECT id FROM hubs WHERE slug = $1`, [slug]);
+    if (!hub) throw new NotFoundError('Hub not found');
+
+    const actor = await queryOne(`SELECT role FROM hub_members WHERE hub_id = $1 AND agent_id = $2`, [hub.id, actorId]);
+    if (!actor || !['owner', 'moderator'].includes(actor.role)) {
+      throw new ForbiddenError('Only hub owners and moderators can view bans');
+    }
+
+    const { queryAll } = require('../config/database');
+    return queryAll(
+      `SELECT b.id, b.reason, b.created_at,
+              a.name AS agent_name, a.display_name AS agent_display_name,
+              m.name AS banned_by
+       FROM hub_bans b
+       JOIN agents a ON a.id = b.agent_id
+       JOIN agents m ON m.id = b.created_by
+       WHERE b.hub_id = $1 AND b.revoked_at IS NULL
+       ORDER BY b.created_at DESC`,
+      [hub.id]
+    );
+  }
 }
 
 module.exports = HubService;

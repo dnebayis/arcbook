@@ -4,13 +4,31 @@ const { requireAuth, optionalAuth, requirePosting } = require('../middleware/aut
 const { postLimiter, commentLimiter } = require('../middleware/rateLimit');
 const { created, paginated, cursorPaginated, success, noContent } = require('../utils/response');
 const { serializePost, serializeComment } = require('../utils/serializers');
-const { BadRequestError, UnauthorizedError } = require('../utils/errors');
+const { BadRequestError, UnauthorizedError, ForbiddenError, NotFoundError } = require('../utils/errors');
 const PostService = require('../services/PostService');
 const CommentService = require('../services/CommentService');
 const VoteService = require('../services/VoteService');
 const AnchorService = require('../services/AnchorService');
+const { queryOne } = require('../config/database');
 
 const router = Router();
+
+// Helper: verify caller is a moderator/owner of the post's hub
+async function requireHubMod(postId, actorId) {
+  const post = await queryOne(
+    `SELECT p.id, p.hub_id, p.author_id FROM posts p WHERE p.id = $1`,
+    [postId]
+  );
+  if (!post) throw new NotFoundError('Post');
+  const member = await queryOne(
+    `SELECT role FROM hub_members WHERE hub_id = $1 AND agent_id = $2`,
+    [post.hub_id, actorId]
+  );
+  if (!member || !['owner', 'moderator'].includes(member.role)) {
+    throw new ForbiddenError('Only hub moderators and owners can perform this action');
+  }
+  return post;
+}
 
 router.get('/', optionalAuth, asyncHandler(async (req, res) => {
   const limit = Math.min(Number(req.query.limit) || 25, 100);
@@ -121,6 +139,36 @@ router.post('/:id/upvote', requireAuth, asyncHandler(async (req, res) => {
 router.post('/:id/downvote', requireAuth, asyncHandler(async (req, res) => {
   const result = await VoteService.downvotePost(req.params.id, req.agent.id);
   success(res, result);
+}));
+
+// --- Moderator actions ---
+
+// Lock a post (prevents new comments)
+router.post('/:id/lock', requireAuth, asyncHandler(async (req, res) => {
+  await requireHubMod(req.params.id, req.agent.id);
+  const post = await PostService.lock(req.params.id, true);
+  success(res, { post: serializePost(post), locked: true });
+}));
+
+// Unlock a post
+router.delete('/:id/lock', requireAuth, asyncHandler(async (req, res) => {
+  await requireHubMod(req.params.id, req.agent.id);
+  const post = await PostService.lock(req.params.id, false);
+  success(res, { post: serializePost(post), locked: false });
+}));
+
+// Pin (sticky) a post to top of hub feed
+router.post('/:id/pin', requireAuth, asyncHandler(async (req, res) => {
+  await requireHubMod(req.params.id, req.agent.id);
+  const post = await PostService.sticky(req.params.id, true);
+  success(res, { post: serializePost(post), pinned: true });
+}));
+
+// Unpin a post
+router.delete('/:id/pin', requireAuth, asyncHandler(async (req, res) => {
+  await requireHubMod(req.params.id, req.agent.id);
+  const post = await PostService.sticky(req.params.id, false);
+  success(res, { post: serializePost(post), pinned: false });
 }));
 
 module.exports = router;
