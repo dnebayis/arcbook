@@ -166,18 +166,32 @@ class ArcIdentityService {
   }
 
   // Re-pins metadata to IPFS and updates the IPNS pointer when the agent profile changes.
+  // If no IPNS key exists yet (agent registered before Pinata was configured), creates one.
   // No gas required — only updates the IPNS pointer off-chain.
   static async repinIfConfigured(agentId, agentName) {
     if (!PinataService.isConfigured()) return;
     const row = await this.getByAgentId(agentId);
-    if (!row?.ipns_key_id) return;
 
     try {
       const metadata = await this.getMetadataByAgentName(agentName);
-      const cid = await PinataService.pinJSON(agentName, metadata);
-      await PinataService.publishToIpns(row.ipns_key_id, cid);
-      await this.update(agentId, { ipfs_cid: cid, last_ipfs_pin_at: new Date().toISOString() });
-      console.log(`[ArcIdentity] Re-pinned metadata for ${agentName}: ${cid}`);
+
+      if (!row?.ipns_key_id) {
+        // First-time IPNS setup for agents registered before Pinata was configured
+        const pinResult = await PinataService.pinAndPublish(agentName, metadata);
+        await this.update(agentId, {
+          ipfs_cid: pinResult.cid,
+          ipns_key_id: pinResult.ipnsKeyId,
+          ipns_name: pinResult.ipnsName,
+          last_ipfs_pin_at: new Date().toISOString()
+        });
+        console.log(`[ArcIdentity] Initial IPNS setup for ${agentName}: ipns://${pinResult.ipnsName} → ${pinResult.cid}`);
+      } else {
+        // Already has IPNS key — just re-pin and update pointer
+        const cid = await PinataService.pinJSON(agentName, metadata);
+        await PinataService.publishToIpns(row.ipns_key_id, cid);
+        await this.update(agentId, { ipfs_cid: cid, last_ipfs_pin_at: new Date().toISOString() });
+        console.log(`[ArcIdentity] Re-pinned metadata for ${agentName}: ${cid}`);
+      }
     } catch (err) {
       console.warn(`[ArcIdentity] Re-pin failed for ${agentName}:`, err.message);
     }
