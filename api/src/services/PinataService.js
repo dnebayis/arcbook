@@ -64,6 +64,28 @@ class PinataService {
     return (await res.json()).data; // { id, name, ipnsName, cid }
   }
 
+  // Pin a file (base64) to IPFS → returns CID
+  static async pinFile(filename, base64Data, mimeType) {
+    const buffer = Buffer.from(base64Data, 'base64');
+    const formData = new FormData();
+    const blob = new Blob([buffer], { type: mimeType });
+    formData.append('file', blob, filename);
+    formData.append('pinataMetadata', JSON.stringify({ name: filename }));
+
+    const res = await fetch(`${PINATA_API}/pinning/pinFileToIPFS`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${config.pinata.jwt}` },
+      body: formData
+    });
+    if (!res.ok) throw new Error(`Pinata file pin failed: ${res.status} ${await res.text()}`);
+    const data = await res.json();
+    return data.IpfsHash; // CID
+  }
+
+  static gatewayUrl(cid) {
+    return `https://gateway.pinata.cloud/ipfs/${cid}`;
+  }
+
   // Full flow: pin JSON + ensure IPNS key + publish → returns { cid, ipnsKeyId, ipnsName, metadataUri }
   static async pinAndPublish(agentName, json) {
     const cid = await this.pinJSON(agentName, json);

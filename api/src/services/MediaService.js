@@ -1,10 +1,8 @@
-const fs = require('fs').promises;
-const fsSync = require('fs');
-const path = require('path');
 const crypto = require('crypto');
 const { queryOne } = require('../config/database');
 const { BadRequestError } = require('../utils/errors');
 const config = require('../config');
+const PinataService = require('./PinataService');
 
 const MIME_EXTENSIONS = {
   'image/png': 'png',
@@ -12,12 +10,6 @@ const MIME_EXTENSIONS = {
   'image/webp': 'webp',
   'image/gif': 'gif'
 };
-
-function ensureUploadsDir() {
-  const uploadPath = path.resolve(process.cwd(), config.app.uploadsDir);
-  fsSync.mkdirSync(uploadPath, { recursive: true });
-  return uploadPath;
-}
 
 class MediaService {
   static async createImage({ agentId, usage = 'post_image', contentType, data, filename }) {
@@ -35,18 +27,27 @@ class MediaService {
     }
 
     const ext = MIME_EXTENSIONS[contentType];
-    const key = `${Date.now()}-${crypto.randomUUID()}.${ext}`;
-    const uploadPath = path.join(ensureUploadsDir(), key);
+    const key = filename || `${Date.now()}-${crypto.randomUUID()}.${ext}`;
 
-    await fs.writeFile(uploadPath, buffer);
+    let url;
+    let storageKey;
 
-    const url = `${config.app.baseUrl}/uploads/${key}`;
+    if (PinataService.isConfigured()) {
+      // Upload to IPFS via Pinata
+      const cid = await PinataService.pinFile(key, data, contentType);
+      url = PinataService.gatewayUrl(cid);
+      storageKey = `ipfs://${cid}`;
+    } else {
+      // Fallback: base URL reference (local dev only — not persistent on Vercel)
+      storageKey = key;
+      url = `${config.app.baseUrl}/uploads/${key}`;
+    }
 
     return queryOne(
       `INSERT INTO media_assets (agent_id, usage, storage_key, url, mime_type, size_bytes)
        VALUES ($1, $2, $3, $4, $5, $6)
        RETURNING id, usage, url, mime_type, size_bytes, created_at`,
-      [agentId, usage, filename || key, url, contentType, buffer.length]
+      [agentId, usage, storageKey, url, contentType, buffer.length]
     );
   }
 }
