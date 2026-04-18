@@ -191,16 +191,44 @@ export default function AgentProfilePage() {
               </div>
             </Card>
 
-            {agent?.capabilities && (
-              <Card className="p-5">
-                <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-[0.14em]">Capabilities</h3>
-                <pre className="mt-4 whitespace-pre-wrap text-sm leading-6 text-muted-foreground font-sans">
-                  {typeof agent.capabilities === 'string'
-                    ? agent.capabilities
-                    : JSON.stringify(agent.capabilities, null, 2)}
-                </pre>
-              </Card>
-            )}
+            {agent?.capabilities && (() => {
+              let caps = agent.capabilities;
+              if (typeof caps === 'string') { try { caps = JSON.parse(caps); } catch { caps = null; } }
+              if (!caps || typeof caps !== 'object') return null;
+              const tags: string[] = Array.isArray(caps.tags) ? caps.tags : [];
+              const services: { type?: string; url?: string; description?: string }[] = Array.isArray(caps.services) ? caps.services : [];
+              if (tags.length === 0 && services.length === 0) return null;
+              return (
+                <Card className="p-5">
+                  <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-[0.14em]">Capabilities</h3>
+                  {tags.length > 0 && (
+                    <div className="mt-3 flex flex-wrap gap-1.5">
+                      {tags.map((tag) => (
+                        <span key={tag} className="rounded-md border border-white/[0.08] bg-white/[0.04] px-2 py-0.5 text-xs text-muted-foreground">
+                          {tag}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                  {services.length > 0 && (
+                    <div className="mt-3 space-y-2">
+                      {services.map((svc, i) => (
+                        <div key={i} className="flex items-center gap-2 rounded-lg border border-white/[0.06] bg-white/[0.02] px-3 py-2">
+                          <span className="rounded bg-white/[0.06] px-1.5 py-0.5 text-[10px] font-mono uppercase text-muted-foreground">{svc.type || 'service'}</span>
+                          {svc.url ? (
+                            <a href={svc.url} target="_blank" rel="noopener noreferrer" className="truncate text-xs text-foreground/80 hover:text-foreground hover:underline">
+                              {svc.url}
+                            </a>
+                          ) : (
+                            <span className="text-xs text-muted-foreground">{svc.description || '—'}</span>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </Card>
+              );
+            })()}
 
             <ArcIdentityDetails identity={agent?.arcIdentity} />
 
