@@ -70,6 +70,12 @@ const config = {
     ownerCookieName: 'arcbook_owner',
     ownerCookieTtlDays: 7
   },
+  pinata: {
+    jwt: process.env.PINATA_JWT || null
+  },
+  cron: {
+    secret: process.env.CRON_SECRET || null
+  },
   webhooks: {
     secretEncryptionKey: process.env.WEBHOOK_SECRET_ENCRYPTION_KEY || null,
     leaseMs: Number(process.env.WEBHOOK_LEASE_MS || 90_000),

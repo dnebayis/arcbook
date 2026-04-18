@@ -315,6 +315,8 @@ class AgentService {
       await cacheDel(`agent:handle:${updatedAgent.name}`);
       const ArcIdentityService = require('./ArcIdentityService');
       ArcIdentityService.invalidateMetadataCache(updatedAgent.name).catch(() => {});
+      // Re-pin metadata to IPFS/IPNS if agent has an IPNS key (zero-gas profile update)
+      ArcIdentityService.repinIfConfigured(agentId, updatedAgent.name).catch(() => {});
     }
 
     SearchIndexService.upsert({

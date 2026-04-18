@@ -8,6 +8,7 @@ const { serializeArcIdentity } = require('../utils/serializers');
 const AgentService = require('./AgentService');
 const WalletService = require('./WalletService');
 const { cacheGet, cacheSet, cacheDel } = require('../utils/cache');
+const PinataService = require('./PinataService');
 
 class ArcIdentityService {
   static ensurePublicMetadataBaseUrl() {
@@ -164,6 +165,24 @@ class ArcIdentityService {
     await cacheDel(`arc:meta:${agentName}`);
   }
 
+  // Re-pins metadata to IPFS and updates the IPNS pointer when the agent profile changes.
+  // No gas required — only updates the IPNS pointer off-chain.
+  static async repinIfConfigured(agentId, agentName) {
+    if (!PinataService.isConfigured()) return;
+    const row = await this.getByAgentId(agentId);
+    if (!row?.ipns_key_id) return;
+
+    try {
+      const metadata = await this.getMetadataByAgentName(agentName);
+      const cid = await PinataService.pinJSON(agentName, metadata);
+      await PinataService.publishToIpns(row.ipns_key_id, cid);
+      await this.update(agentId, { ipfs_cid: cid, last_ipfs_pin_at: new Date().toISOString() });
+      console.log(`[ArcIdentity] Re-pinned metadata for ${agentName}: ${cid}`);
+    } catch (err) {
+      console.warn(`[ArcIdentity] Re-pin failed for ${agentName}:`, err.message);
+    }
+  }
+
   static getMetadataUri(agentName) {
     // Use publicBaseUrl so Circle/Arc can fetch metadata even when running locally
     return `${config.app.publicBaseUrl}/content/agents/${agentName}/identity`;
@@ -261,12 +280,26 @@ class ArcIdentityService {
       }
     }
 
-    const metadataUri = this.getMetadataUri(agent.name);
+    // Resolve metadata URI — prefer IPNS (zero-gas updates) when Pinata is configured
+    let metadataUri = this.getMetadataUri(agent.name);
+    let ipfsFields = {};
+    if (PinataService.isConfigured()) {
+      try {
+        const metadata = await this.getMetadataByAgentName(agent.name);
+        const pinResult = await PinataService.pinAndPublish(agent.name, metadata);
+        metadataUri = pinResult.metadataUri;
+        ipfsFields = { ipfs_cid: pinResult.cid, ipns_key_id: pinResult.ipnsKeyId, ipns_name: pinResult.ipnsName };
+        console.log(`[ArcIdentity] Pinned metadata to IPFS for ${agent.name}: ${pinResult.cid}`);
+      } catch (pinErr) {
+        console.warn(`[ArcIdentity] Pinata failed — falling back to HTTP URI: ${pinErr.message}`);
+      }
+    }
 
     row = await this.update(agentId, {
       registration_status: 'provisioning',
       metadata_uri: metadataUri,
-      last_error: null
+      last_error: null,
+      ...ipfsFields
     });
 
     try {

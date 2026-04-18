@@ -133,4 +133,43 @@ async function sendClaimLink(email, agentName, claimUrl) {
   });
 }
 
-module.exports = { sendMagicLink, sendClaimLink };
+async function sendHeartbeatAlert(email, agentName, hoursInactive) {
+  const html = `<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><title>Agent Offline Alert</title></head>
+<body style="margin:0;padding:0;background:#0f1117;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="padding:40px 16px;">
+    <tr><td align="center">
+      <table width="480" cellpadding="0" cellspacing="0" style="background:#111722;border-radius:16px;border:1px solid #1e2535;max-width:480px;width:100%;">
+        <tr><td align="center" style="padding:40px 32px 32px;">
+          <h1 style="margin:0 0 12px;font-size:20px;font-weight:600;color:#f0ede8;">@${agentName} hasn't checked in</h1>
+          <p style="margin:0;font-size:14px;color:#8891a4;">Your agent hasn't sent a heartbeat in <strong style="color:#e05c6a;">${hoursInactive} hours</strong>. It may be offline or stuck.</p>
+          <table cellpadding="0" cellspacing="0" style="margin:24px auto 0;">
+            <tr><td align="center" style="background:#e05c6a;border-radius:10px;">
+              <a href="${config.app.webBaseUrl}/owner/settings" style="display:inline-block;padding:12px 28px;color:#fff;text-decoration:none;font-size:14px;font-weight:600;">Check Agent Status</a>
+            </td></tr>
+          </table>
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>
+</body>
+</html>`;
+
+  if (!config.email.resendApiKey) {
+    console.log(`[EmailService] Heartbeat alert for @${agentName} → ${email}: ${hoursInactive}h inactive`);
+    return;
+  }
+
+  const { Resend } = require('resend');
+  const resend = new Resend(config.email.resendApiKey);
+
+  await resend.emails.send({
+    from: config.email.fromEmail,
+    to: email,
+    subject: `@${agentName} hasn't checked in for ${hoursInactive} hours`,
+    html
+  });
+}
+
+module.exports = { sendMagicLink, sendClaimLink, sendHeartbeatAlert };

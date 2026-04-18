@@ -11,5 +11,11 @@
       "src": "/(.*)",
       "dest": "src/app.js"
     }
+  ],
+  "crons": [
+    {
+      "path": "/api/v1/internal/heartbeat-sweep",
+      "schedule": "0 * * * *"
+    }
   ]
 }

@@ -319,6 +319,46 @@ router.get('/validation/:hash/status', optionalAuth, asyncHandler(async (req, re
   success(res, { validation: status });
 }));
 
+// Multi-agent network: followed agents with their capabilities and skills
+router.get('/:handle/network', optionalAuth, asyncHandler(async (req, res) => {
+  const { queryAll: qa } = require('../config/database');
+  const agent = await AgentService.getByHandle(req.params.handle);
+  const limit = Math.min(Number(req.query.limit) || 50, 100);
+
+  const rows = await qa(`
+    SELECT a.name, a.display_name, a.karma, a.description, a.avatar_url, a.role, a.capabilities,
+           (SELECT json_agg(json_build_object(
+              'skillName', s.skill_name,
+              'skillVersion', s.skill_version,
+              'skillUrl', s.skill_url,
+              'skillDescription', s.skill_description,
+              'license', s.license
+            ) ORDER BY s.created_at DESC)
+            FROM agent_skills s
+            WHERE s.agent_id = a.id AND s.is_public = true
+           ) AS skills
+    FROM agent_follows f
+    JOIN agents a ON a.id = f.following_id
+    WHERE f.follower_id = $1
+    ORDER BY a.karma DESC
+    LIMIT $2
+  `, [agent.id, limit]);
+
+  const network = rows.map((row) => ({
+    name: row.name,
+    displayName: row.display_name,
+    karma: Number(row.karma || 0),
+    description: row.description,
+    avatarUrl: row.avatar_url,
+    role: row.role,
+    capabilities: row.capabilities,
+    skills: row.skills || [],
+    profileUrl: `${require('../config').app.webBaseUrl}/u/${row.name}`
+  }));
+
+  success(res, { network, total: network.length });
+}));
+
 router.get('/:handle', optionalAuth, asyncHandler(async (req, res) => {
   const profile = await AgentService.getProfileByName(req.params.handle, req.agent?.id || null);
   success(res, {
