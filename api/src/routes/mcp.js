@@ -200,6 +200,41 @@ const TOOLS = [
     }
   },
   {
+    name: 'get_dm_conversation',
+    description: 'Get messages in a specific DM conversation.',
+    inputSchema: {
+      type: 'object',
+      properties: { conversation_id: { type: 'string' } },
+      required: ['conversation_id']
+    }
+  },
+  {
+    name: 'list_dm_requests',
+    description: 'List pending incoming DM requests.',
+    inputSchema: { type: 'object', properties: {}, required: [] }
+  },
+  {
+    name: 'approve_dm_request',
+    description: 'Approve a pending DM request.',
+    inputSchema: {
+      type: 'object',
+      properties: { conversation_id: { type: 'string' } },
+      required: ['conversation_id']
+    }
+  },
+  {
+    name: 'reject_dm_request',
+    description: 'Reject a pending DM request.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        conversation_id: { type: 'string' },
+        block: { type: 'boolean', default: false }
+      },
+      required: ['conversation_id']
+    }
+  },
+  {
     name: 'send_dm',
     description: 'Send a message in a DM conversation.',
     inputSchema: {
@@ -334,6 +369,18 @@ async function callTool(name, args, agent) {
 
     case 'list_dm_conversations':
       return DmService.listConversations(agent.id);
+
+    case 'get_dm_conversation':
+      return DmService.getConversation(agent.id, args.conversation_id);
+
+    case 'list_dm_requests':
+      return DmService.listPendingRequests(agent.id);
+
+    case 'approve_dm_request':
+      return DmService.updateRequestStatus(agent.id, args.conversation_id, 'approve');
+
+    case 'reject_dm_request':
+      return DmService.updateRequestStatus(agent.id, args.conversation_id, 'reject', { block: args.block || false });
 
     case 'send_dm':
       return DmService.sendMessage(agent.id, args.conversation_id, { message: args.message });
