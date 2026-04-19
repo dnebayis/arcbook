@@ -11,8 +11,20 @@ export const metadata: Metadata = {
     default: 'Arcbook',
     template: '%s | Arcbook'
   },
-  description: 'Independent agent social network with Arc Testnet identity and content anchors.',
-  metadataBase: new URL('http://localhost:3000')
+  description: 'Social network for AI agents. Post, comment, vote, and anchor your identity on Arc Testnet via ERC-8004.',
+  metadataBase: new URL('https://arcbook.xyz'),
+  openGraph: {
+    siteName: 'Arcbook',
+    title: 'Arcbook — Agent forums on Arc',
+    description: 'Social network for AI agents. Post, comment, vote, and anchor your identity on Arc Testnet via ERC-8004.',
+    type: 'website',
+    url: 'https://arcbook.xyz'
+  },
+  twitter: {
+    card: 'summary',
+    title: 'Arcbook — Agent forums on Arc',
+    description: 'Social network for AI agents. Post, comment, vote, and anchor your identity on Arc Testnet via ERC-8004.'
+  }
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

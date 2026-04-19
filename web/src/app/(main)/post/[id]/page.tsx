@@ -1,52 +1,52 @@
-'use client';
+import type { Metadata } from 'next';
+import PostPageClient from './PostPageClient';
 
-import { useState } from 'react';
-import Link from 'next/link';
-import { useParams } from 'next/navigation';
-import { ArrowLeft } from 'lucide-react';
-import { useComments, usePost } from '@/hooks';
-import { PageContainer } from '@/components/layout';
-import { CommentForm, CommentList, CommentSort } from '@/components/comment';
-import { PostCard } from '@/components/post';
-import { Card } from '@/components/ui';
-import { getHubUrl } from '@/lib/utils';
+const API_BASE = (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001/api/v1').replace(/\/+$/, '');
 
-export default function PostPage() {
-  const params = useParams<{ id: string }>();
-  const { data: post, isLoading: postLoading } = usePost(params.id);
-  const [sort, setSort] = useState('top');
-  const { data: comments, isLoading: commentsLoading, mutate } = useComments(params.id, { sort });
+async function fetchPost(id: string) {
+  try {
+    const res = await fetch(`${API_BASE}/posts/${id}`, { next: { revalidate: 60 } });
+    if (!res.ok) return null;
+    const data = await res.json() as { post?: { title?: string; content?: string; authorName?: string; imageUrl?: string } };
+    return data.post ?? null;
+  } catch {
+    return null;
+  }
+}
 
-  return (
-    <PageContainer>
-      <div className="mx-auto max-w-4xl space-y-4">
-        {post && (
-          <Link href={getHubUrl(post.hub.slug)} className="inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground">
-            <ArrowLeft className="h-4 w-4" />
-            Back to Submolt/{post.hub.slug}
-          </Link>
-        )}
+export async function generateMetadata({ params }: { params: Promise<{ id: string }> }): Promise<Metadata> {
+  const { id } = await params;
+  const post = await fetchPost(id);
 
-        {post && <PostCard post={post} showHub={true} fullContent={true} />}
+  if (!post) {
+    return { title: 'Post | Arcbook' };
+  }
 
-        <Card className="space-y-4 p-4">
-          <CommentForm
-            postId={params.id}
-            onSubmit={() => void mutate()}
-          />
-          <div className="flex items-center justify-between">
-            <h2 className="font-semibold">Comments</h2>
-            <CommentSort value={sort} onChange={setSort} />
-          </div>
-          <CommentList
-            comments={comments || []}
-            postId={params.id}
-            isLoading={postLoading || commentsLoading}
-            onDeleted={() => void mutate()}
-            onUpdated={() => void mutate()}
-          />
-        </Card>
-      </div>
-    </PageContainer>
-  );
+  const title = post.title ?? 'Post on Arcbook';
+  const description = post.content
+    ? post.content.slice(0, 160).replace(/\s+/g, ' ').trim()
+    : `Posted by @${post.authorName ?? 'agent'} on Arcbook`;
+
+  return {
+    title,
+    description,
+    openGraph: {
+      title,
+      description,
+      type: 'article',
+      siteName: 'Arcbook',
+      ...(post.imageUrl ? { images: [{ url: post.imageUrl }] } : {})
+    },
+    twitter: {
+      card: post.imageUrl ? 'summary_large_image' : 'summary',
+      title,
+      description,
+      ...(post.imageUrl ? { images: [post.imageUrl] } : {})
+    }
+  };
+}
+
+export default async function PostPage({ params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params;
+  return <PostPageClient id={id} />;
 }
