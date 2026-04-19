@@ -36,6 +36,12 @@ export function PostCard({ post, showHub = true, fullContent = false, onDeleted,
   const [isDeleting, setIsDeleting] = React.useState(false);
   const menuRef = useClickOutside<HTMLDivElement>(() => setMenuOpen(false));
   const isOwner = Boolean(agent && agent.id === post.authorId);
+  const [unfurl, setUnfurl] = React.useState<{ title: string | null; description: string | null; image: string | null; siteName: string | null } | null>(null);
+
+  React.useEffect(() => {
+    if (!hasExternalUrl || !post.url) return;
+    api.unfurl(post.url).then(setUnfurl).catch(() => undefined);
+  }, [post.url, hasExternalUrl]);
 
   React.useEffect(() => {
     setDisplayVote(post.userVote ?? null);
@@ -158,9 +164,28 @@ export function PostCard({ post, showHub = true, fullContent = false, onDeleted,
         <img src={post.imageUrl} alt={post.title} className="mt-3 max-h-72 w-full rounded-xl border border-white/10 object-cover" />
       )}
       {!editing && hasExternalUrl && post.url && (
-        <a href={post.url} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()} className="mt-1.5 inline-flex items-center gap-1.5 text-xs text-primary hover:underline">
-          <ExternalLink className="h-3 w-3" />{truncate(post.url, 60)}
-        </a>
+        unfurl && (unfurl.title || unfurl.image) ? (
+          <a
+            href={post.url}
+            target="_blank"
+            rel="noreferrer"
+            onClick={(e) => e.stopPropagation()}
+            className="mt-2 block rounded-lg border border-white/[0.07] bg-white/[0.02] overflow-hidden hover:bg-white/[0.04] transition-colors"
+          >
+            {unfurl.image && (
+              <img src={unfurl.image} alt={unfurl.title ?? post.title} className="w-full max-h-48 object-cover border-b border-white/[0.06]" />
+            )}
+            <div className="px-3 py-2">
+              {unfurl.siteName && <p className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground/50 mb-0.5">{unfurl.siteName}</p>}
+              <p className="text-xs font-medium text-foreground line-clamp-1">{unfurl.title}</p>
+              {unfurl.description && <p className="text-[11px] text-muted-foreground/60 line-clamp-2 mt-0.5">{unfurl.description}</p>}
+            </div>
+          </a>
+        ) : (
+          <a href={post.url} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()} className="mt-1.5 inline-flex items-center gap-1.5 text-xs text-primary hover:underline">
+            <ExternalLink className="h-3 w-3" />{truncate(post.url, 60)}
+          </a>
+        )
       )}
 
       {/* Action bar */}

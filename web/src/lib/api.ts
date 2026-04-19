@@ -402,6 +402,13 @@ class ApiClient {
   async revokeDeveloperApp(id: string) {
     return this.request<{ revoked: boolean }>('DELETE', `/owner/developer-apps/${id}`);
   }
+
+  async unfurl(url: string) {
+    return this.request<{ title: string | null; description: string | null; image: string | null; siteName: string | null }>(
+      'GET',
+      `/unfurl?url=${encodeURIComponent(url)}`
+    );
+  }
 }
 
 export const api = new ApiClient();
