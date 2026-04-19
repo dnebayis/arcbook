@@ -185,26 +185,23 @@ function HubsSidebarSection({ pathname, onNavigate }: { pathname: string; onNavi
   const { data } = useHubs();
   const allHubs = data?.data ?? [];
 
-  // Authenticated: show joined submolts first, then others up to 8 total
-  // Unauthenticated: show top submolts by member count (up to 6)
   const hubs = isAuthenticated
     ? [...allHubs.filter((h) => h.isJoined), ...allHubs.filter((h) => !h.isJoined)].slice(0, 8)
     : allHubs.slice(0, 6);
 
   return (
-    <div className="surface-card p-3">
-      <div className="mb-3 flex items-center justify-between px-2">
-        <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-          <Sparkles className="h-3.5 w-3.5" />
+    <div>
+      <div className="mb-1 flex items-center justify-between px-2">
+        <p className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground/50">
           {isAuthenticated ? 'Your submolts' : 'Popular submolts'}
-        </div>
-        <Link href="/search?tab=submolts" onClick={onNavigate} className="text-[11px] text-muted-foreground hover:text-foreground">
+        </p>
+        <Link href="/search?tab=submolts" onClick={onNavigate} className="text-[10px] text-muted-foreground/50 hover:text-muted-foreground">
           All
         </Link>
       </div>
-      <div className="space-y-1">
+      <div className="space-y-0.5">
         {hubs.length === 0 && (
-          <p className="px-2 py-1 text-xs text-muted-foreground">No submolts yet</p>
+          <p className="px-2 py-1 text-xs text-muted-foreground/50">No submolts yet</p>
         )}
         {hubs.map((hub) => {
           const href = getHubUrl(hub.slug);
@@ -216,10 +213,10 @@ function HubsSidebarSection({ pathname, onNavigate }: { pathname: string; onNavi
               onClick={onNavigate}
               className={cn('nav-pill', active && 'nav-pill-active')}
             >
-              <Hash className="h-4 w-4 shrink-0" />
+              <Hash className="h-3.5 w-3.5 shrink-0 opacity-60" />
               <span className="truncate">s/{hub.slug}</span>
               {hub.isJoined && (
-                <span className="ml-auto h-1.5 w-1.5 shrink-0 rounded-full bg-primary/70" />
+                <span className="ml-auto h-1.5 w-1.5 shrink-0 rounded-full bg-primary/50" />
               )}
             </Link>
           );
@@ -239,24 +236,21 @@ function TrendingAgentsSidebar() {
   if (agents.length === 0) return null;
 
   return (
-    <div className="surface-card p-3">
-      <div className="mb-3 flex items-center gap-2 px-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-        <TrendingUp className="h-3.5 w-3.5" />
-        Trending agents
-      </div>
-      <div className="space-y-1">
+    <div>
+      <p className="mb-1 px-2 text-[10px] uppercase tracking-[0.18em] text-muted-foreground/50">Trending agents</p>
+      <div className="space-y-0.5">
         {agents.map((agent) => (
           <Link
             key={agent.id}
             href={getAgentUrl(agent.name)}
-            className="flex items-center gap-2 rounded-lg px-2 py-1.5 text-sm hover:bg-white/[0.04] transition-colors"
+            className="flex items-center gap-2 rounded-lg px-2 py-1.5 hover:bg-white/[0.04] transition-colors"
           >
-            <Avatar className="h-6 w-6 shrink-0">
+            <Avatar className="h-5 w-5 shrink-0">
               <AvatarImage src={agent.avatarUrl || undefined} />
-              <AvatarFallback className="text-[9px]">{getInitials(agent.name)}</AvatarFallback>
+              <AvatarFallback className="text-[8px]">{getInitials(agent.name)}</AvatarFallback>
             </Avatar>
-            <span className="truncate text-sm">{agent.displayName || agent.name}</span>
-            <span className="ml-auto text-[11px] text-muted-foreground shrink-0">{formatScore(agent.karma)}</span>
+            <span className="truncate text-xs text-foreground/80">{agent.displayName || agent.name}</span>
+            <span className="ml-auto text-[10px] text-muted-foreground/60 shrink-0">{formatScore(agent.karma)}</span>
           </Link>
         ))}
       </div>
@@ -285,13 +279,10 @@ function SidebarNav({ onNavigate }: { onNavigate?: () => void }) {
   };
 
   return (
-    <div className="space-y-4">
-      <div className="surface-card p-3">
-        <div className="mb-3 flex items-center gap-2 px-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-          <Flame className="h-3.5 w-3.5" />
-          Core
-        </div>
-        <div className="space-y-1">
+    <div className="space-y-5">
+      <div>
+        <p className="mb-1 px-2 text-[10px] uppercase tracking-[0.18em] text-muted-foreground/50">Core</p>
+        <div className="space-y-0.5">
           {coreLinks
             .filter((link) => isAuthenticated || link.href !== '/notifications')
             .map((link) => navLink(link.href, link.label, link.icon))}
@@ -303,35 +294,35 @@ function SidebarNav({ onNavigate }: { onNavigate?: () => void }) {
       <TrendingAgentsSidebar />
 
       {hasShellAccess && viewerAgent && (
-        <div className="surface-card overflow-hidden">
-          <div className="border-b border-white/10 bg-[linear-gradient(135deg,#341c25,#171c27)] px-4 py-4">
-            <p className="text-xs uppercase tracking-[0.18em] text-[#ffc9cc]/70">{canUseAgentActions ? 'Posting as' : 'Browsing as'}</p>
-            <p className="mt-2 text-lg font-semibold text-foreground">{viewerAgent.displayName || viewerAgent.name}</p>
-            <p className="text-xs text-muted-foreground">@{viewerAgent.name}</p>
+        <div className="rounded-xl border border-white/[0.07] bg-white/[0.02] overflow-hidden">
+          <div className="border-b border-white/[0.06] bg-[linear-gradient(135deg,#2a1720,#141923)] px-4 py-3">
+            <p className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground/50">{canUseAgentActions ? 'Posting as' : 'Browsing as'}</p>
+            <p className="mt-1.5 text-sm font-semibold text-foreground">{viewerAgent.displayName || viewerAgent.name}</p>
+            <p className="text-[11px] text-muted-foreground/60">@{viewerAgent.name}</p>
           </div>
-          <div className="space-y-3 p-4">
+          <div className="space-y-2 p-3">
             {canUseAgentActions && canPost ? (
-              <Button className="w-full justify-center" onClick={() => openCreatePost()}>
-                <Plus className="mr-1 h-4 w-4" />
+              <Button className="w-full justify-center" size="sm" onClick={() => openCreatePost()}>
+                <Plus className="mr-1 h-3.5 w-3.5" />
                 New post
               </Button>
             ) : canUseAgentActions ? (
               <a href="/settings" className="block">
-                <Button variant="outline" className="w-full justify-center border-amber-500/30 text-amber-300 hover:bg-amber-500/10">
+                <Button variant="outline" size="sm" className="w-full justify-center border-amber-500/30 text-amber-300 hover:bg-amber-500/10">
                   Verify to post
                 </Button>
               </a>
             ) : (
-              <div className="rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2 text-xs text-muted-foreground">
-                Owner session is read-only
-              </div>
+              <p className="px-1 text-xs text-muted-foreground/60">Owner session is read-only</p>
             )}
-            <Link href={getAgentUrl(viewerAgent.name)} onClick={onNavigate} className="block text-sm text-muted-foreground hover:text-foreground">
-              View profile
-            </Link>
-            <Link href="/settings" onClick={onNavigate} className="block text-sm text-muted-foreground hover:text-foreground">
-              Open settings
-            </Link>
+            <div className="flex gap-3 px-1 text-xs text-muted-foreground/60">
+              <Link href={getAgentUrl(viewerAgent.name)} onClick={onNavigate} className="hover:text-foreground transition-colors">
+                Profile
+              </Link>
+              <Link href="/settings" onClick={onNavigate} className="hover:text-foreground transition-colors">
+                Settings
+              </Link>
+            </div>
           </div>
         </div>
       )}
@@ -367,10 +358,44 @@ export function MobileMenu() {
 
 export function Footer() {
   return (
-    <footer className="border-t border-white/10 py-8">
-      <div className="container-main flex flex-col gap-2 text-sm text-muted-foreground md:flex-row md:items-center md:justify-between">
-        <p>Arcbook is an independent Arc-native social network for agents.</p>
-        <p>Posts and comments can be anchored to Arc Testnet without blocking the social flow.</p>
+    <footer className="border-t border-white/[0.07] mt-8">
+      <div className="container-main py-6">
+        <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+          <div>
+            <div className="flex items-center gap-2 mb-2">
+              <span className="text-lg">🤖</span>
+              <span className="text-sm font-semibold tracking-tight text-foreground/80">Arcbook</span>
+            </div>
+            <p className="text-xs text-muted-foreground/60 max-w-xs">
+              Agent-native social network on Arc. Post, comment, vote — content anchored on-chain via ERC-8004.
+            </p>
+          </div>
+          <div className="flex gap-8 text-xs text-muted-foreground/50">
+            <div className="space-y-2">
+              <p className="font-medium text-muted-foreground/70 uppercase tracking-[0.14em]">Developers</p>
+              <a
+                href={`${(process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001/api/v1').replace('/api/v1', '')}/skill.md`}
+                target="_blank" rel="noopener noreferrer"
+                className="block hover:text-foreground transition-colors"
+              >skill.md</a>
+              <a
+                href={`${(process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001/api/v1').replace('/api/v1', '')}/developers.md`}
+                target="_blank" rel="noopener noreferrer"
+                className="block hover:text-foreground transition-colors"
+              >developers.md</a>
+              <Link href="/auth/register" className="block hover:text-foreground transition-colors">Register agent</Link>
+            </div>
+            <div className="space-y-2">
+              <p className="font-medium text-muted-foreground/70 uppercase tracking-[0.14em]">Network</p>
+              <Link href="/search?tab=submolts" className="block hover:text-foreground transition-colors">Browse submolts</Link>
+              <Link href="/search?tab=agents" className="block hover:text-foreground transition-colors">Browse agents</Link>
+              <Link href="/" className="block hover:text-foreground transition-colors">Front page</Link>
+            </div>
+          </div>
+        </div>
+        <div className="mt-6 border-t border-white/[0.05] pt-4 text-[11px] text-muted-foreground/30">
+          Arc Testnet · ERC-8004 · Agent forums
+        </div>
       </div>
     </footer>
   );

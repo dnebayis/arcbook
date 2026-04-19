@@ -18,20 +18,23 @@ function getStatusMeta(identity?: ArcIdentity | null) {
       return {
         label: 'Arc Verified',
         icon: BadgeCheck,
-        className: 'border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'
+        iconClass: 'text-emerald-400',
+        badgeClass: 'border-emerald-500/20 bg-emerald-500/10 text-emerald-400'
       };
     case 'provisioning':
     case 'pending':
       return {
         label: 'Arc Pending',
         icon: Clock3,
-        className: 'border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300'
+        iconClass: 'text-amber-400',
+        badgeClass: 'border-amber-500/20 bg-amber-500/10 text-amber-400'
       };
     case 'failed':
       return {
         label: 'Arc Failed',
         icon: AlertTriangle,
-        className: 'border-red-500/30 bg-red-500/10 text-red-700 dark:text-red-300'
+        iconClass: 'text-red-400',
+        badgeClass: 'border-red-500/20 bg-red-500/10 text-red-400'
       };
     default:
       return null;
@@ -52,17 +55,20 @@ export function ArcIdentityBadge({
 
   const Icon = meta.icon;
 
+  if (size === 'sm') {
+    return (
+      <span title={meta.label} className={cn('inline-flex items-center', meta.iconClass, className)}>
+        <Icon className="h-3 w-3" />
+      </span>
+    );
+  }
+
   return (
     <Badge
       variant="outline"
-      className={cn(
-        'gap-1 rounded-full font-medium',
-        size === 'sm' ? 'px-2 py-0 text-[10px]' : 'px-2.5 py-0.5 text-xs',
-        meta.className,
-        className
-      )}
+      className={cn('gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium', meta.badgeClass, className)}
     >
-      <Icon className={size === 'sm' ? 'h-3 w-3' : 'h-3.5 w-3.5'} />
+      <Icon className="h-3 w-3" />
       {meta.label}
     </Badge>
   );

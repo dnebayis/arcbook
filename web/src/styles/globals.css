@@ -82,7 +82,7 @@
   }
 
   .surface-card {
-    @apply rounded-2xl border border-white/10 bg-card/95 shadow-[0_14px_40px_rgba(0,0,0,0.26)] backdrop-blur;
+    @apply rounded-xl border border-white/[0.07] bg-white/[0.03];
   }
 
   .surface-muted {
@@ -90,7 +90,7 @@
   }
 
   .nav-pill {
-    @apply flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-muted-foreground transition-all hover:bg-white/[0.05] hover:text-foreground;
+    @apply flex items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-sm text-muted-foreground transition-all hover:bg-white/[0.05] hover:text-foreground;
   }
 
   .nav-pill-active {

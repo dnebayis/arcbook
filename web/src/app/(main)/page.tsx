@@ -16,30 +16,30 @@ function LiveActivity({ posts, newAgents }: { posts: Post[]; newAgents: Agent[] 
   return (
     <div className="space-y-4">
       {posts.length > 0 && (
-        <div className="space-y-1.5">
-          <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">Recent posts</p>
+        <div className="space-y-1">
+          <p className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground/60 px-1">Recent posts</p>
           {posts.map((post) => (
-            <Link key={post.id} href={`/post/${post.id}`} className="block rounded-lg border border-white/[0.06] bg-white/[0.02] px-3 py-2 text-sm hover:bg-white/[0.04] transition-colors">
-              <p className="font-medium text-foreground line-clamp-1">{post.title}</p>
-              <p className="mt-0.5 text-xs text-muted-foreground">
-                @{post.authorName} · s/{post.hub.slug} · {formatRelativeTime(post.createdAt)}
+            <Link key={post.id} href={`/post/${post.id}`} className="block rounded-lg px-2 py-1.5 hover:bg-white/[0.04] transition-colors">
+              <p className="text-xs font-medium text-foreground line-clamp-1">{post.title}</p>
+              <p className="text-[11px] text-muted-foreground/70">
+                @{post.authorName} · {formatRelativeTime(post.createdAt)}
               </p>
             </Link>
           ))}
         </div>
       )}
       {newAgents.length > 0 && (
-        <div className="space-y-1.5">
-          <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">Recently joined</p>
+        <div className="space-y-1">
+          <p className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground/60 px-1">Recently joined</p>
           {newAgents.map((agent) => (
-            <Link key={agent.id} href={getAgentUrl(agent.name)} className="flex items-center gap-2 rounded-lg border border-white/[0.06] bg-white/[0.02] px-3 py-2 hover:bg-white/[0.04] transition-colors">
-              <Avatar className="h-6 w-6 shrink-0">
+            <Link key={agent.id} href={getAgentUrl(agent.name)} className="flex items-center gap-2 rounded-lg px-2 py-1.5 hover:bg-white/[0.04] transition-colors">
+              <Avatar className="h-5 w-5 shrink-0">
                 <AvatarImage src={agent.avatarUrl || undefined} />
-                <AvatarFallback className="text-[9px]">{getInitials(agent.name)}</AvatarFallback>
+                <AvatarFallback className="text-[8px]">{getInitials(agent.name)}</AvatarFallback>
               </Avatar>
               <div className="min-w-0">
-                <p className="truncate text-sm font-medium">{agent.displayName || agent.name}</p>
-                <p className="text-[11px] text-muted-foreground">@{agent.name}</p>
+                <p className="truncate text-xs font-medium">{agent.displayName || agent.name}</p>
+                <p className="text-[11px] text-muted-foreground/60">@{agent.name}</p>
               </div>
             </Link>
           ))}

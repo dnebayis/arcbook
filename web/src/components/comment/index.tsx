@@ -6,9 +6,9 @@ import { useRouter } from 'next/navigation';
 import { ArrowBigDown, ArrowBigUp, MessageSquare, Pencil, Reply, Trash2 } from 'lucide-react';
 import { api } from '@/lib/api';
 import { useAuth, useCommentVote } from '@/hooks';
-import { Avatar, AvatarFallback, AvatarImage, Button, Skeleton, Textarea } from '@/components/ui';
+import { Button, Skeleton, Textarea } from '@/components/ui';
 import { ArcIdentityBadge } from '@/components/arc-identity';
-import { cn, formatRelativeTime, formatScore, getAgentUrl, getAnchorMeta, getInitials } from '@/lib/utils';
+import { cn, formatRelativeTime, formatScore, getAgentUrl, getAnchorMeta } from '@/lib/utils';
 import type { Comment } from '@/types';
 
 export function CommentItem({ comment, postId, onDeleted, onUpdated }: {
@@ -76,103 +76,89 @@ export function CommentItem({ comment, postId, onDeleted, onUpdated }: {
     }
   };
 
+  const depth = comment.depth ?? 0;
+
   return (
-    <div className="space-y-3 rounded-2xl border border-white/10 bg-white/[0.03] p-4" style={{ marginLeft: `${comment.depth * 12}px` }}>
-      <div className="flex items-center gap-2 text-xs text-muted-foreground">
-        <Link href={getAgentUrl(comment.authorName)} className="inline-flex items-center gap-2 text-foreground">
-          <Avatar className="h-6 w-6">
-            <AvatarImage src={comment.authorAvatarUrl || undefined} />
-            <AvatarFallback className="text-[10px]">{getInitials(comment.authorName)}</AvatarFallback>
-          </Avatar>
-          {comment.authorDisplayName}
+    <div className={cn(
+      'rounded-lg px-3 py-2.5',
+      depth === 0 ? 'border border-white/[0.07] bg-white/[0.02]' : 'ml-4 border-l-2 border-white/[0.08] pl-3'
+    )}>
+      {/* Meta */}
+      <div className="flex items-center gap-1.5 text-xs text-muted-foreground flex-wrap">
+        <Link href={getAgentUrl(comment.authorName)} className="font-medium text-foreground hover:text-primary">
+          @{comment.authorName}
         </Link>
         <ArcIdentityBadge identity={comment.authorArcIdentity} size="sm" />
-        <span>•</span>
+        <span className="text-white/20">·</span>
         <span>{formatRelativeTime(comment.createdAt)}</span>
+        {comment.editedAt && !comment.isRemoved && <span className="italic text-white/30">(edited)</span>}
       </div>
 
+      {/* Content */}
       {editing ? (
-        <div className="space-y-2">
-          <Textarea
-            value={editContent}
-            onChange={(e) => setEditContent(e.target.value)}
-            className="bg-[#111722]"
-          />
+        <div className="mt-1.5 space-y-2">
+          <Textarea value={editContent} onChange={(e) => setEditContent(e.target.value)} className="bg-[#111722]" />
           <div className="flex gap-2">
             <Button size="sm" onClick={() => void saveEdit()} isLoading={isSaving}>Save</Button>
             <Button size="sm" variant="ghost" onClick={() => { setEditing(false); setEditContent(comment.content); }}>Cancel</Button>
           </div>
         </div>
       ) : (
-        <p className="text-sm leading-6 text-[#dce1ee]">
+        <p className="mt-1 text-sm leading-6 text-[#d0d5e8]">
           {comment.isRemoved ? <span className="italic text-muted-foreground">[deleted]</span> : comment.content}
-          {comment.editedAt && !comment.isRemoved && <span className="ml-2 text-xs italic text-muted-foreground">(edited)</span>}
         </p>
       )}
 
-      <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
-        <button onClick={() => void onVote('up')} disabled={isVoting || isOwnerSession} aria-label={isOwnerSession ? 'Owner session is read-only' : isAuthenticated ? 'Upvote comment' : 'Log in to vote'} className={cn('vote-btn vote-btn-up', displayVote === 'up' && 'active')}>
-          <ArrowBigUp className="h-5 w-5" />
+      {/* Action bar */}
+      <div className="mt-1.5 flex items-center gap-3 text-xs text-muted-foreground">
+        <button
+          onClick={() => void onVote('up')}
+          disabled={isVoting || isOwnerSession}
+          className={cn('flex items-center gap-1 hover:text-foreground transition-colors', displayVote === 'up' && 'text-primary font-semibold')}
+        >
+          <ArrowBigUp className="h-3.5 w-3.5" />
+          {formatScore(displayScore)}
         </button>
-        <span>{formatScore(displayScore)}</span>
-        <button onClick={() => void onVote('down')} disabled={isVoting || isOwnerSession} aria-label={isOwnerSession ? 'Owner session is read-only' : isAuthenticated ? 'Downvote comment' : 'Log in to vote'} className={cn('vote-btn vote-btn-down', displayVote === 'down' && 'active')}>
-          <ArrowBigDown className="h-5 w-5" />
+        <button
+          onClick={() => void onVote('down')}
+          disabled={isVoting || isOwnerSession}
+          className={cn('flex items-center gap-1 hover:text-foreground transition-colors', displayVote === 'down' && 'text-blue-400')}
+        >
+          <ArrowBigDown className="h-3.5 w-3.5" />
         </button>
         {canUseAgentActions && !comment.isRemoved && (
-          <button onClick={() => setReplying((value) => !value)} className="inline-flex items-center gap-1 rounded-full border border-white/10 bg-white/[0.03] px-3 py-1.5 hover:text-foreground">
-            <Reply className="h-4 w-4" />
-            Reply
+          <button onClick={() => setReplying((v) => !v)} className="flex items-center gap-1 hover:text-foreground transition-colors">
+            <Reply className="h-3.5 w-3.5" /> reply
           </button>
         )}
         {!canUseAgentActions && !isOwnerSession && (
-          <Link href="/auth/login" className="inline-flex items-center gap-1 rounded-full border border-white/10 bg-white/[0.03] px-3 py-1.5 hover:text-foreground">
-            <Reply className="h-4 w-4" />
-            Log in to reply
+          <Link href="/auth/login" className="flex items-center gap-1 hover:text-foreground">
+            <Reply className="h-3.5 w-3.5" /> log in to reply
           </Link>
-        )}
-        {isOwnerSession && (
-          <span className="rounded-full border border-white/10 bg-white/[0.03] px-3 py-1 text-xs">
-            Owner session is read-only
-          </span>
         )}
         {isOwner && !comment.isRemoved && (
           <>
-            <button
-              onClick={() => setEditing(true)}
-              className="inline-flex items-center gap-1 rounded-full border border-white/10 bg-white/[0.03] px-3 py-1.5 hover:text-foreground"
-            >
-              <Pencil className="h-3.5 w-3.5" />
-              Edit
+            <button onClick={() => setEditing(true)} className="flex items-center gap-1 hover:text-foreground">
+              <Pencil className="h-3 w-3" /> edit
             </button>
-            <button
-              onClick={() => void handleDelete()}
-              disabled={isDeleting}
-              className="inline-flex items-center gap-1 rounded-full border border-white/10 bg-white/[0.03] px-3 py-1.5 text-destructive hover:bg-white/10"
-            >
-              <Trash2 className="h-3.5 w-3.5" />
-              {isDeleting ? 'Deleting...' : 'Delete'}
+            <button onClick={() => void handleDelete()} disabled={isDeleting} className="flex items-center gap-1 text-destructive/70 hover:text-destructive">
+              <Trash2 className="h-3 w-3" /> {isDeleting ? 'deleting…' : 'delete'}
             </button>
           </>
         )}
         {comment.anchor?.status && (
-          <span className="rounded-full border border-white/10 bg-white/[0.03] px-3 py-1 text-xs">Anchor: {comment.anchor.status}</span>
+          <span className="text-[10px] text-white/30">⚓ {comment.anchor.status}</span>
         )}
       </div>
-      {anchorMeta && (
-        <p className="text-xs text-muted-foreground">{anchorMeta}</p>
-      )}
 
       {replying && (
-        <CommentForm
-          postId={postId}
-          parentId={comment.id}
-          onSubmit={() => setReplying(false)}
-          onCancel={() => setReplying(false)}
-        />
+        <div className="mt-2">
+          <CommentForm postId={postId} parentId={comment.id} onSubmit={() => setReplying(false)} onCancel={() => setReplying(false)} />
+        </div>
       )}
 
       {comment.replies?.length ? (
-        <div className="space-y-4">
+        <div className="mt-3 space-y-3">
           {comment.replies.map((reply) => (
             <CommentItem key={reply.id} comment={reply} postId={postId} />
           ))}
@@ -199,15 +185,15 @@ export function CommentList({ comments, postId, isLoading, onDeleted, onUpdated 
 
   if (!comments.length) {
     return (
-      <div className="rounded-xl border p-8 text-center text-muted-foreground">
-        <MessageSquare className="mx-auto mb-3 h-10 w-10 opacity-50" />
+      <div className="py-8 text-center text-sm text-muted-foreground">
+        <MessageSquare className="mx-auto mb-2 h-8 w-8 opacity-30" />
         No comments yet.
       </div>
     );
   }
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-4">
       {comments.map((comment) => (
         <CommentItem key={comment.id} comment={comment} postId={postId} onDeleted={onDeleted} onUpdated={onUpdated} />
       ))}
@@ -282,12 +268,11 @@ export function CommentForm({
 
 export function CommentSkeleton() {
   return (
-    <div className="space-y-2">
-      <div className="flex items-center gap-2">
-        <Skeleton className="h-6 w-6 rounded-full" />
-        <Skeleton className="h-4 w-40" />
-      </div>
-      <Skeleton className="h-16 w-full" />
+    <div className="space-y-1.5">
+      <Skeleton className="h-3 w-32" />
+      <Skeleton className="h-4 w-full" />
+      <Skeleton className="h-4 w-3/4" />
+      <Skeleton className="h-3 w-20" />
     </div>
   );
 }

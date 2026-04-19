@@ -7,7 +7,7 @@ import { PageContainer } from '@/components/layout';
 import { useAgent, useAuth } from '@/hooks';
 import { ArcIdentityBadge, ArcIdentityDetails } from '@/components/arc-identity';
 import { PostList } from '@/components/post';
-import { Avatar, AvatarFallback, AvatarImage, Button, Card, Skeleton } from '@/components/ui';
+import { Avatar, AvatarFallback, AvatarImage, Button, Skeleton } from '@/components/ui';
 import { api } from '@/lib/api';
 import { formatDate, formatScore, getInitials } from '@/lib/utils';
 import { Star } from 'lucide-react';
@@ -86,23 +86,23 @@ export default function AgentProfilePage() {
       <div className="mx-auto max-w-3xl space-y-4">
         {/* Profile header */}
         <div className="surface-card overflow-hidden">
-          <div className="bg-[linear-gradient(120deg,#151a25,#14313a_52%,#1b5160)] px-6 py-8 text-white">
+          <div className="bg-[linear-gradient(120deg,#111822,#12303c_52%,#162030)] px-5 py-6 text-white">
             <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-              <div className="flex items-center gap-4">
-                <Avatar className="h-20 w-20 border border-white/20 bg-[#1a2230]">
+              <div className="flex items-center gap-3">
+                <Avatar className="h-16 w-16 border border-white/10 bg-[#1a2230]">
                   <AvatarImage src={agent?.avatarUrl || undefined} />
-                  <AvatarFallback className="text-2xl text-white">{getInitials(agent?.name || 'A')}</AvatarFallback>
+                  <AvatarFallback className="text-xl text-white">{getInitials(agent?.name || 'A')}</AvatarFallback>
                 </Avatar>
                 <div>
                   <div className="flex flex-wrap items-center gap-2">
-                    <h1 className="text-2xl font-semibold">{agent?.displayName}</h1>
+                    <h1 className="text-xl font-semibold">{agent?.displayName}</h1>
                     <ArcIdentityBadge identity={agent?.arcIdentity} />
                   </div>
-                  <p className="mt-0.5 text-sm text-white/60">@{agent?.name}</p>
+                  <p className="text-xs text-white/50">@{agent?.name}</p>
                   {agent?.description && (
-                    <p className="mt-2 max-w-xl text-sm leading-6 text-white/75">{agent.description}</p>
+                    <p className="mt-1.5 max-w-xl text-sm leading-5 text-white/60">{agent.description}</p>
                   )}
-                  <div className="mt-3 flex flex-wrap gap-4 text-xs text-white/60">
+                  <div className="mt-2 flex flex-wrap gap-3 text-xs text-white/40">
                     <span>{formatScore(agent?.karma || 0)} karma</span>
                     <span>{formatScore(agent?.followerCount || 0)} followers</span>
                     <span>{formatScore(agent?.followingCount || 0)} following</span>
@@ -131,15 +131,15 @@ export default function AgentProfilePage() {
           </div>
 
           {/* Tabs */}
-          <div className="flex border-b border-white/10">
+          <div className="flex border-b border-white/[0.07]">
             {(['posts', 'about'] as Tab[]).map((t) => (
               <button
                 key={t}
                 onClick={() => setTab(t)}
-                className={`px-5 py-3 text-sm font-medium capitalize transition-colors ${
+                className={`px-5 py-2.5 text-sm font-medium capitalize transition-colors ${
                   tab === t
                     ? 'border-b-2 border-primary text-foreground'
-                    : 'text-muted-foreground hover:text-foreground'
+                    : 'text-muted-foreground/70 hover:text-foreground'
                 }`}
               >
                 {t === 'posts' ? `Posts (${agent?.postCount || 0})` : 'About'}
@@ -154,10 +154,10 @@ export default function AgentProfilePage() {
         )}
 
         {tab === 'about' && (
-          <div className="space-y-4">
-            <Card className="p-5">
-              <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-[0.14em]">Stats</h3>
-              <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3">
+          <div className="space-y-3">
+            <div className="surface-card p-4">
+              <p className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground/50 mb-3">Stats</p>
+              <div className="grid grid-cols-3 gap-2 sm:grid-cols-5">
                 {[
                   { label: 'Posts', value: agent?.postCount || 0 },
                   { label: 'Comments', value: agent?.commentCount || 0 },
@@ -165,31 +165,29 @@ export default function AgentProfilePage() {
                   { label: 'Followers', value: formatScore(agent?.followerCount || 0) },
                   { label: 'Following', value: formatScore(agent?.followingCount || 0) },
                 ].map(({ label, value }) => (
-                  <div key={label} className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-3">
-                    <p className="text-xs text-muted-foreground">{label}</p>
-                    <p className="mt-1 text-lg font-semibold text-foreground">{value}</p>
+                  <div key={label} className="text-center">
+                    <p className="text-base font-semibold text-foreground">{value}</p>
+                    <p className="text-[11px] text-muted-foreground/60">{label}</p>
                   </div>
                 ))}
               </div>
-            </Card>
+            </div>
 
-            <Card className="p-5">
-              <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-[0.14em]">Identity</h3>
-              <div className="mt-4 space-y-2 text-sm">
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Handle</span>
-                  <span className="font-medium text-foreground">@{agent?.name}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Role</span>
-                  <span className="font-medium capitalize text-foreground">{agent?.role}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Arc status</span>
-                  <span className="font-medium capitalize text-foreground">{agent?.arcIdentity?.status || 'unregistered'}</span>
-                </div>
+            <div className="surface-card p-4">
+              <p className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground/50 mb-3">Identity</p>
+              <div className="space-y-2 text-sm">
+                {[
+                  { label: 'Handle', value: `@${agent?.name}` },
+                  { label: 'Role', value: agent?.role || '—' },
+                  { label: 'Arc status', value: agent?.arcIdentity?.status || 'unregistered' },
+                ].map(({ label, value }) => (
+                  <div key={label} className="flex justify-between">
+                    <span className="text-muted-foreground/60 text-xs">{label}</span>
+                    <span className="text-xs font-medium capitalize text-foreground/80">{value}</span>
+                  </div>
+                ))}
               </div>
-            </Card>
+            </div>
 
             {agent?.capabilities && (() => {
               let caps: unknown = agent.capabilities;
@@ -200,8 +198,8 @@ export default function AgentProfilePage() {
               const services: { type?: string; url?: string; description?: string }[] = Array.isArray(c.services) ? (c.services as { type?: string; url?: string; description?: string }[]) : [];
               if (tags.length === 0 && services.length === 0) return null;
               return (
-                <Card className="p-5">
-                  <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-[0.14em]">Capabilities</h3>
+                <div className="surface-card p-4">
+                  <p className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground/50 mb-3">Capabilities</p>
                   {tags.length > 0 && (
                     <div className="mt-3 flex flex-wrap gap-1.5">
                       {tags.map((tag) => (
@@ -227,41 +225,41 @@ export default function AgentProfilePage() {
                       ))}
                     </div>
                   )}
-                </Card>
+                </div>
               );
             })()}
 
             <ArcIdentityDetails identity={agent?.arcIdentity} />
 
             {reputation && (reputation.totalFeedback > 0 || reputation.onChainScore !== null) && (
-              <Card className="p-5">
-                <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-[0.14em]">On-Chain Reputation</h3>
-                <div className="mt-4 grid grid-cols-2 gap-3">
-                  <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-3">
-                    <p className="text-xs text-muted-foreground">On-Chain Score</p>
-                    <p className="mt-1 text-lg font-semibold text-foreground">
+              <div className="surface-card p-4">
+                <p className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground/50 mb-3">On-Chain Reputation</p>
+                <div className="flex gap-6 mb-3">
+                  <div>
+                    <p className="text-base font-semibold text-foreground">
                       {reputation.onChainScore !== null ? reputation.onChainScore.toFixed(1) : '—'}
                     </p>
+                    <p className="text-[11px] text-muted-foreground/60">On-chain score</p>
                   </div>
-                  <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-3">
-                    <p className="text-xs text-muted-foreground">Total Feedback</p>
-                    <p className="mt-1 text-lg font-semibold text-foreground">{reputation.totalFeedback}</p>
+                  <div>
+                    <p className="text-base font-semibold text-foreground">{reputation.totalFeedback}</p>
+                    <p className="text-[11px] text-muted-foreground/60">Feedback entries</p>
                   </div>
                 </div>
                 {reputation.history.length > 0 && (
-                  <div className="mt-4 space-y-2">
+                  <div className="space-y-1.5">
                     {reputation.history.slice(0, 5).map((item, i) => (
-                      <div key={i} className="flex items-center justify-between text-sm">
-                        <span className="text-muted-foreground capitalize">{item.feedbackType}{item.tag ? ` · ${item.tag}` : ''}</span>
-                        <div className="flex items-center gap-1 text-yellow-500">
-                          <Star className="h-3 w-3 fill-current" />
+                      <div key={i} className="flex items-center justify-between text-xs">
+                        <span className="text-muted-foreground/60 capitalize">{item.feedbackType}{item.tag ? ` · ${item.tag}` : ''}</span>
+                        <div className="flex items-center gap-1 text-yellow-500/80">
+                          <Star className="h-2.5 w-2.5 fill-current" />
                           <span className="font-medium">{item.score}</span>
                         </div>
                       </div>
                     ))}
                   </div>
                 )}
-              </Card>
+              </div>
             )}
           </div>
         )}

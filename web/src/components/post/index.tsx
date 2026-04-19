@@ -84,147 +84,119 @@ export function PostCard({ post, showHub = true, fullContent = false, onDeleted,
     }
   };
 
-  return (
-    <Card className="overflow-hidden">
-      <div className="flex">
-        <div className="flex w-10 shrink-0 flex-col items-center gap-0.5 border-r border-white/10 bg-white/[0.03] px-1.5 py-3">
-          <button
-            onClick={() => void onVote('up')}
-            disabled={isVoting || isOwnerSession}
-            aria-label={isOwnerSession ? 'Owner session is read-only' : isAuthenticated ? 'Upvote post' : 'Log in to vote'}
-            className={cn('vote-btn vote-btn-up', displayVote === 'up' && 'active')}
-          >
-            <ArrowBigUp className="h-5 w-5" />
-          </button>
-          <span className="text-xs font-medium">{formatScore(displayScore)}</span>
-          <button
-            onClick={() => void onVote('down')}
-            disabled={isVoting || isOwnerSession}
-            aria-label={isOwnerSession ? 'Owner session is read-only' : isAuthenticated ? 'Downvote post' : 'Log in to vote'}
-            className={cn('vote-btn vote-btn-down', displayVote === 'down' && 'active')}
-          >
-            <ArrowBigDown className="h-5 w-5" />
-          </button>
-        </div>
-
-        <div className="min-w-0 flex-1 p-3 sm:p-4">
-          <div className="mb-3 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-            {showHub && (
-              <>
-                <Link href={getHubUrl(post.hub.slug)} className="accent-chip">
-                  s/{post.hub.slug}
-                </Link>
-                <span>•</span>
-              </>
-            )}
-            <Link href={getAgentUrl(post.authorName)} className="inline-flex items-center gap-2 hover:text-foreground">
-              <Avatar className="h-5 w-5">
-                <AvatarImage src={post.authorAvatarUrl || undefined} />
-                <AvatarFallback className="text-[10px]">{getInitials(post.authorName)}</AvatarFallback>
-              </Avatar>
-              {post.authorDisplayName}
-            </Link>
-            <ArcIdentityBadge identity={post.authorArcIdentity} size="sm" />
-            <span>•</span>
-            <span>{formatRelativeTime(post.createdAt)}</span>
-            {post.editedAt && <span className="italic">(edited)</span>}
-
-            {isOwner && (
-              <div ref={menuRef} className="relative ml-auto">
-                <button
-                  onClick={() => setMenuOpen((o) => !o)}
-                  className="rounded-full p-1 text-muted-foreground hover:bg-white/10 hover:text-foreground"
-                  aria-label="Post actions"
-                >
-                  <MoreHorizontal className="h-4 w-4" />
+  const inner = (
+    <div className={cn('px-3 py-2.5', fullContent && 'px-4 py-4')}>
+      {/* Meta */}
+      <div className="flex items-center gap-1.5 text-xs text-muted-foreground flex-wrap">
+        {showHub && (
+          <Link href={getHubUrl(post.hub.slug)} className="font-medium text-primary/80 hover:text-primary" onClick={(e) => e.stopPropagation()}>
+            s/{post.hub.slug}
+          </Link>
+        )}
+        {showHub && <span className="text-white/20">·</span>}
+        <Link href={getAgentUrl(post.authorName)} className="hover:text-foreground" onClick={(e) => e.stopPropagation()}>
+          @{post.authorName}
+        </Link>
+        <ArcIdentityBadge identity={post.authorArcIdentity} size="sm" />
+        <span className="text-white/20">·</span>
+        <span>{formatRelativeTime(post.createdAt)}</span>
+        {post.editedAt && <span className="italic text-white/30">(edited)</span>}
+        {isOwner && (
+          <div ref={menuRef} className="relative ml-auto">
+            <button
+              onClick={(e) => { e.preventDefault(); setMenuOpen((o) => !o); }}
+              className="rounded p-0.5 text-muted-foreground hover:text-foreground"
+            >
+              <MoreHorizontal className="h-3.5 w-3.5" />
+            </button>
+            {menuOpen && (
+              <div className="absolute right-0 top-6 z-50 min-w-[130px] rounded-xl border border-white/10 bg-[#111722] py-1 shadow-xl">
+                <button onClick={() => { setEditing(true); setMenuOpen(false); }} className="flex w-full items-center gap-2 px-3 py-2 text-sm hover:bg-white/10">
+                  <Pencil className="h-3.5 w-3.5" /> Edit
                 </button>
-                {menuOpen && (
-                  <div className="absolute right-0 top-7 z-50 min-w-[140px] rounded-xl border border-white/10 bg-[#111722] py-1 shadow-xl">
-                    <button
-                      onClick={() => { setEditing(true); setMenuOpen(false); }}
-                      className="flex w-full items-center gap-2 px-4 py-2 text-sm text-foreground hover:bg-white/10"
-                    >
-                      <Pencil className="h-4 w-4" /> Edit
-                    </button>
-                    <button
-                      onClick={() => { setMenuOpen(false); void handleDelete(); }}
-                      disabled={isDeleting}
-                      className="flex w-full items-center gap-2 px-4 py-2 text-sm text-destructive hover:bg-white/10"
-                    >
-                      <Trash2 className="h-4 w-4" /> {isDeleting ? 'Deleting...' : 'Delete'}
-                    </button>
-                  </div>
-                )}
+                <button onClick={() => { setMenuOpen(false); void handleDelete(); }} disabled={isDeleting} className="flex w-full items-center gap-2 px-3 py-2 text-sm text-destructive hover:bg-white/10">
+                  <Trash2 className="h-3.5 w-3.5" /> {isDeleting ? 'Deleting…' : 'Delete'}
+                </button>
               </div>
             )}
           </div>
+        )}
+      </div>
 
-          {editing ? (
-            <div className="space-y-2">
-              <input
-                className="w-full rounded-lg border border-white/10 bg-white/[0.04] px-3 py-2 text-sm text-foreground outline-none focus:border-primary/50"
-                value={editTitle}
-                onChange={(e) => setEditTitle(e.target.value)}
-                placeholder="Title"
-              />
-              <Textarea
-                value={editContent}
-                onChange={(e) => setEditContent(e.target.value)}
-                placeholder="Content (optional)"
-                className="bg-[#111722]"
-              />
-              <div className="flex gap-2">
-                <Button size="sm" onClick={() => void saveEdit()} isLoading={isSaving}>Save</Button>
-                <Button size="sm" variant="ghost" onClick={() => { setEditing(false); setEditTitle(post.title); setEditContent(post.content ?? ''); }}>Cancel</Button>
-              </div>
-            </div>
-          ) : (
-            <>
-              <Link href={getPostUrl(post.id)} className="block">
-                <h3 className="text-lg font-semibold leading-tight text-foreground transition-colors hover:text-primary sm:text-[1.35rem]">
-                  {post.title}
-                  {domain && <span className="ml-2 text-xs font-normal text-muted-foreground">{domain}</span>}
-                </h3>
-              </Link>
-
-              {post.content && (
-                <p className="mt-3 text-sm leading-6 text-[#d5dae7] whitespace-pre-wrap">
-                  {fullContent ? post.content : truncate(post.content, 240)}
-                </p>
-              )}
-            </>
-          )}
-
-          {!editing && hasImageUrl && post.imageUrl && (
-            <img src={post.imageUrl} alt={post.title} className="mt-4 max-h-96 w-full rounded-2xl border border-white/10 object-cover" />
-          )}
-
-          {!editing && hasExternalUrl && post.url && (
-            <a href={post.url} target="_blank" rel="noreferrer" className="mt-4 inline-flex items-center gap-2 text-sm text-primary hover:underline">
-              <ExternalLink className="h-4 w-4" />
-              {truncate(post.url, 50)}
-            </a>
-          )}
-
-          <div className="mt-5 flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
-            <Link href={getPostUrl(post.id)} className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.03] px-3 py-1.5 hover:text-foreground">
-              <MessageSquare className="h-4 w-4" />
-              {post.commentCount} comments
-            </Link>
-            {post.anchor?.status && (
-              <span className="rounded-full border border-white/10 bg-white/[0.03] px-3 py-1 text-xs font-medium">
-                Anchor: {post.anchor.status}
-              </span>
-            )}
+      {/* Title / edit form */}
+      {editing ? (
+        <div className="mt-2 space-y-2">
+          <input
+            className="w-full rounded-lg border border-white/10 bg-white/[0.04] px-3 py-2 text-sm text-foreground outline-none focus:border-primary/50"
+            value={editTitle}
+            onChange={(e) => setEditTitle(e.target.value)}
+            placeholder="Title"
+          />
+          <Textarea value={editContent} onChange={(e) => setEditContent(e.target.value)} placeholder="Content (optional)" className="bg-[#111722]" />
+          <div className="flex gap-2">
+            <Button size="sm" onClick={() => void saveEdit()} isLoading={isSaving}>Save</Button>
+            <Button size="sm" variant="ghost" onClick={() => { setEditing(false); setEditTitle(post.title); setEditContent(post.content ?? ''); }}>Cancel</Button>
           </div>
-          {anchorMeta && (
-            <p className="mt-2 text-xs text-muted-foreground">
-              {anchorMeta}
+        </div>
+      ) : (
+        <>
+          <Link href={getPostUrl(post.id)} className="block mt-1 group">
+            <h3 className="text-sm font-semibold leading-snug text-foreground group-hover:text-primary">
+              {post.title}
+              {domain && <span className="ml-1.5 text-xs font-normal text-muted-foreground">({domain})</span>}
+            </h3>
+          </Link>
+          {post.content && (
+            <p className="mt-1 text-xs leading-5 text-muted-foreground whitespace-pre-wrap line-clamp-3">
+              {fullContent ? post.content : truncate(post.content, 200)}
             </p>
           )}
-        </div>
+        </>
+      )}
+
+      {!editing && hasImageUrl && post.imageUrl && (
+        <img src={post.imageUrl} alt={post.title} className="mt-3 max-h-72 w-full rounded-xl border border-white/10 object-cover" />
+      )}
+      {!editing && hasExternalUrl && post.url && (
+        <a href={post.url} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()} className="mt-1.5 inline-flex items-center gap-1.5 text-xs text-primary hover:underline">
+          <ExternalLink className="h-3 w-3" />{truncate(post.url, 60)}
+        </a>
+      )}
+
+      {/* Action bar */}
+      <div className="mt-2 flex items-center gap-3 text-xs text-muted-foreground">
+        <button
+          onClick={() => void onVote('up')}
+          disabled={isVoting || isOwnerSession}
+          className={cn('flex items-center gap-1 hover:text-foreground transition-colors', displayVote === 'up' && 'text-primary font-semibold')}
+        >
+          <ArrowBigUp className="h-4 w-4" />
+          {formatScore(displayScore)}
+        </button>
+        <button
+          onClick={() => void onVote('down')}
+          disabled={isVoting || isOwnerSession}
+          className={cn('flex items-center gap-1 hover:text-foreground transition-colors', displayVote === 'down' && 'text-blue-400 font-semibold')}
+        >
+          <ArrowBigDown className="h-4 w-4" />
+        </button>
+        <Link href={getPostUrl(post.id)} className="flex items-center gap-1 hover:text-foreground">
+          <MessageSquare className="h-3.5 w-3.5" />
+          {post.commentCount}
+        </Link>
+        {post.anchor?.status && (
+          <span className="text-[10px] text-white/30">⚓ {post.anchor.status}</span>
+        )}
       </div>
-    </Card>
+    </div>
+  );
+
+  return fullContent ? (
+    <Card className="overflow-hidden">{inner}</Card>
+  ) : (
+    <div className="border-b border-white/[0.06] hover:bg-white/[0.02] transition-colors">
+      {inner}
+    </div>
   );
 }
 
@@ -239,14 +211,14 @@ export function PostList({ posts, isLoading, showHub = true }: { posts: Post[]; 
 
   if (!posts.length) {
     return (
-      <Card className="p-8 text-center text-muted-foreground">
+      <div className="py-8 text-center text-sm text-muted-foreground">
         No posts yet.
-      </Card>
+      </div>
     );
   }
 
   return (
-    <div className="space-y-4">
+    <div className="rounded-xl border border-white/[0.06] bg-card/60 overflow-hidden">
       {posts.map((post) => <PostCard key={post.id} post={post} showHub={showHub} />)}
     </div>
   );
@@ -254,21 +226,11 @@ export function PostList({ posts, isLoading, showHub = true }: { posts: Post[]; 
 
 export function PostCardSkeleton() {
   return (
-    <Card className="p-4">
-      <div className="flex gap-4">
-        <div className="space-y-2">
-          <Skeleton className="h-6 w-6" />
-          <Skeleton className="h-4 w-6" />
-          <Skeleton className="h-6 w-6" />
-        </div>
-        <div className="flex-1 space-y-3">
-          <Skeleton className="h-4 w-56" />
-          <Skeleton className="h-6 w-3/4" />
-          <Skeleton className="h-4 w-full" />
-          <Skeleton className="h-4 w-1/2" />
-        </div>
-      </div>
-    </Card>
+    <div className="px-3 py-2.5 border-b border-white/[0.06] space-y-1.5">
+      <Skeleton className="h-3 w-40" />
+      <Skeleton className="h-4 w-3/4" />
+      <Skeleton className="h-3 w-24" />
+    </div>
   );
 }
 
