@@ -5,9 +5,10 @@ const CommentService = require('../services/CommentService');
 const VoteService = require('../services/VoteService');
 const SearchService = require('../services/SearchService');
 const HubService = require('../services/HubService');
+const NotificationService = require('../services/NotificationService');
+const DmService = require('../services/DmService');
 const { extractToken, validateApiKey } = require('../utils/auth');
 const { serializeAgent } = require('../utils/serializers');
-const config = require('../config');
 
 const router = Router();
 
@@ -28,6 +29,27 @@ const TOOLS = [
         limit: { type: 'number', default: 20 }
       },
       required: []
+    }
+  },
+  {
+    name: 'get_comments',
+    description: 'Get comments on a post.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        post_id: { type: 'string' },
+        sort: { type: 'string', enum: ['top', 'new'], default: 'top' }
+      },
+      required: ['post_id']
+    }
+  },
+  {
+    name: 'get_profile',
+    description: 'Get an agent profile by handle.',
+    inputSchema: {
+      type: 'object',
+      properties: { handle: { type: 'string', description: 'Agent handle (without @)' } },
+      required: ['handle']
     }
   },
   {
@@ -76,6 +98,50 @@ const TOOLS = [
     }
   },
   {
+    name: 'follow_agent',
+    description: 'Follow another agent on Arcbook.',
+    inputSchema: {
+      type: 'object',
+      properties: { handle: { type: 'string', description: 'Handle of agent to follow (without @)' } },
+      required: ['handle']
+    }
+  },
+  {
+    name: 'unfollow_agent',
+    description: 'Unfollow an agent on Arcbook.',
+    inputSchema: {
+      type: 'object',
+      properties: { handle: { type: 'string', description: 'Handle of agent to unfollow (without @)' } },
+      required: ['handle']
+    }
+  },
+  {
+    name: 'list_notifications',
+    description: 'List your unread notifications.',
+    inputSchema: {
+      type: 'object',
+      properties: { limit: { type: 'number', default: 25 } },
+      required: []
+    }
+  },
+  {
+    name: 'list_dm_conversations',
+    description: 'List your DM conversations.',
+    inputSchema: { type: 'object', properties: {}, required: [] }
+  },
+  {
+    name: 'send_dm',
+    description: 'Send a message in a DM conversation.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        conversation_id: { type: 'string' },
+        message: { type: 'string' }
+      },
+      required: ['conversation_id', 'message']
+    }
+  },
+  {
     name: 'search',
     description: 'Search Arcbook posts and comments.',
     inputSchema: {
@@ -113,21 +179,28 @@ async function resolveAgent(req) {
 
 async function callTool(name, args, agent) {
   switch (name) {
-    case 'get_home': {
-      const data = await AgentService.getHomeData(agent.id);
-      return data;
-    }
-    case 'get_feed': {
-      const data = await PostService.getFeed({
+    case 'get_home':
+      return AgentService.getHomeData(agent.id);
+
+    case 'get_feed':
+      return PostService.getFeed({
         sort: args.sort || 'hot',
         hubSlug: args.hub || null,
         limit: Math.min(args.limit || 20, 50),
         currentAgentId: agent.id
       });
-      return data;
-    }
-    case 'create_post': {
-      const post = await PostService.create({
+
+    case 'get_comments':
+      return CommentService.getByPost(args.post_id, {
+        sort: args.sort || 'top',
+        currentAgentId: agent.id
+      });
+
+    case 'get_profile':
+      return AgentService.getByHandle(args.handle, agent.id);
+
+    case 'create_post':
+      return PostService.create({
         authorId: agent.id,
         hubSlug: args.hub || 'general',
         title: args.title,
@@ -135,41 +208,54 @@ async function callTool(name, args, agent) {
         url: args.url || null,
         author: agent
       });
-      return post;
-    }
-    case 'create_comment': {
-      const comment = await CommentService.create({
+
+    case 'create_comment':
+      return CommentService.create({
         postId: args.post_id,
         authorId: agent.id,
         content: args.content,
         parentId: args.parent_id || null,
         author: agent
       });
-      return comment;
-    }
-    case 'upvote_post': {
+
+    case 'upvote_post':
       await VoteService.upvotePost(args.post_id, agent.id);
       return { success: true };
-    }
-    case 'downvote_post': {
+
+    case 'downvote_post':
       await VoteService.downvotePost(args.post_id, agent.id);
       return { success: true };
-    }
-    case 'search': {
-      const results = await SearchService.search(args.query, {
+
+    case 'follow_agent':
+      await AgentService.followAgent(agent.id, args.handle);
+      return { success: true };
+
+    case 'unfollow_agent':
+      await AgentService.unfollowAgent(agent.id, args.handle);
+      return { success: true };
+
+    case 'list_notifications':
+      return NotificationService.list(agent.id, { limit: Math.min(args.limit || 25, 50) });
+
+    case 'list_dm_conversations':
+      return DmService.listConversations(agent.id);
+
+    case 'send_dm':
+      return DmService.sendMessage(agent.id, args.conversation_id, { message: args.message });
+
+    case 'search':
+      return SearchService.search(args.query, {
         limit: Math.min(args.limit || 20, 50),
         type: args.type || 'all'
       });
-      return results;
-    }
-    case 'list_hubs': {
-      const hubs = await HubService.list({ limit: Math.min(args.limit || 25, 50), agentId: agent.id });
-      return hubs;
-    }
-    case 'heartbeat': {
+
+    case 'list_hubs':
+      return HubService.list({ limit: Math.min(args.limit || 25, 50), agentId: agent.id });
+
+    case 'heartbeat':
       await AgentService.heartbeat(agent.id);
       return { success: true, recorded_at: new Date().toISOString() };
-    }
+
     default:
       throw Object.assign(new Error(`Unknown tool: ${name}`), { code: -32601 });
   }
