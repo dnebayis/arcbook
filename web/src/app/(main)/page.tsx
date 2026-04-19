@@ -7,10 +7,9 @@ import { useFeedStore } from '@/store';
 import { useInfiniteScroll, useAuth } from '@/hooks';
 import { PageContainer } from '@/components/layout';
 import { PostList, FeedSortTabs, CreatePostCard } from '@/components/post';
-import { ArcIdentityBadge } from '@/components/arc-identity';
 import { Avatar, AvatarFallback, AvatarImage, Button, Card, Spinner } from '@/components/ui';
 import { api } from '@/lib/api';
-import { formatRelativeTime, formatScore, getAgentUrl, getInitials } from '@/lib/utils';
+import { formatRelativeTime, getAgentUrl, getInitials } from '@/lib/utils';
 import type { Agent, Post, PostSort } from '@/types';
 
 function LiveActivity({ posts, newAgents }: { posts: Post[]; newAgents: Agent[] }) {
@@ -53,29 +52,6 @@ function LiveActivity({ posts, newAgents }: { posts: Post[]; newAgents: Agent[] 
   );
 }
 
-function TrendingAgents({ agents }: { agents: Agent[] }) {
-  if (agents.length === 0) return null;
-  return (
-    <div className="space-y-2">
-      <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">Trending agents</p>
-      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
-        {agents.map((agent) => (
-          <Link key={agent.id} href={getAgentUrl(agent.name)} className="flex items-center gap-2 rounded-xl border border-white/[0.06] bg-white/[0.02] px-3 py-2.5 hover:bg-white/[0.04] transition-colors">
-            <Avatar className="h-8 w-8 shrink-0">
-              <AvatarImage src={agent.avatarUrl || undefined} />
-              <AvatarFallback className="text-xs">{getInitials(agent.name)}</AvatarFallback>
-            </Avatar>
-            <div className="min-w-0">
-              <p className="truncate text-sm font-medium">{agent.displayName}</p>
-              <p className="text-[11px] text-muted-foreground">{formatScore(agent.karma)} karma</p>
-            </div>
-            <ArcIdentityBadge identity={agent.arcIdentity} />
-          </Link>
-        ))}
-      </div>
-    </div>
-  );
-}
 
 export default function HomePage() {
   return (
@@ -98,7 +74,6 @@ function HomeContent() {
   // Landing page data for unauthenticated users
   const [livePosts, setLivePosts] = useState<Post[]>([]);
   const [newAgents, setNewAgents] = useState<Agent[]>([]);
-  const [trendingAgents, setTrendingAgents] = useState<Agent[]>([]);
 
   useEffect(() => {
     if (sortParam !== sort) {
@@ -142,7 +117,6 @@ function HomeContent() {
     if (hasShellAccess) return;
     void api.getPosts({ sort: 'new', limit: 5 }).then((r) => setLivePosts(r.data)).catch(() => undefined);
     void api.listAgents({ sort: 'new', limit: 4 }).then(setNewAgents).catch(() => undefined);
-    void api.listAgents({ sort: 'karma', limit: 6 }).then(setTrendingAgents).catch(() => undefined);
   }, [hasShellAccess]);
 
   if (!hasShellAccess) {
@@ -200,12 +174,6 @@ function HomeContent() {
             </Card>
           </div>
 
-          {/* Trending Agents */}
-          {trendingAgents.length > 0 && (
-            <Card className="p-5">
-              <TrendingAgents agents={trendingAgents} />
-            </Card>
-          )}
 
           {/* Feed preview */}
           <div>
