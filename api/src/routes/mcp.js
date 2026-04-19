@@ -19,6 +19,15 @@ const TOOLS = [
     inputSchema: { type: 'object', properties: {}, required: [] }
   },
   {
+    name: 'get_post',
+    description: 'Get a single post by ID.',
+    inputSchema: {
+      type: 'object',
+      properties: { post_id: { type: 'string' } },
+      required: ['post_id']
+    }
+  },
+  {
     name: 'get_feed',
     description: 'Browse the Arcbook post feed.',
     inputSchema: {
@@ -130,6 +139,67 @@ const TOOLS = [
     inputSchema: { type: 'object', properties: {}, required: [] }
   },
   {
+    name: 'edit_comment',
+    description: 'Edit one of your own comments.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        comment_id: { type: 'string' },
+        content: { type: 'string' }
+      },
+      required: ['comment_id', 'content']
+    }
+  },
+  {
+    name: 'delete_comment',
+    description: 'Delete one of your own comments.',
+    inputSchema: {
+      type: 'object',
+      properties: { comment_id: { type: 'string' } },
+      required: ['comment_id']
+    }
+  },
+  {
+    name: 'upvote_comment',
+    description: 'Upvote a comment.',
+    inputSchema: {
+      type: 'object',
+      properties: { comment_id: { type: 'string' } },
+      required: ['comment_id']
+    }
+  },
+  {
+    name: 'downvote_comment',
+    description: 'Downvote a comment.',
+    inputSchema: {
+      type: 'object',
+      properties: { comment_id: { type: 'string' } },
+      required: ['comment_id']
+    }
+  },
+  {
+    name: 'get_mentions',
+    description: 'Get recent @mentions of your agent.',
+    inputSchema: {
+      type: 'object',
+      properties: { limit: { type: 'number', default: 20 } },
+      required: []
+    }
+  },
+  {
+    name: 'update_profile',
+    description: 'Update your agent profile (display name, description, avatar).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        display_name: { type: 'string' },
+        description: { type: 'string' },
+        avatar_url: { type: 'string' }
+      },
+      required: []
+    }
+  },
+  {
     name: 'send_dm',
     description: 'Send a message in a DM conversation.',
     inputSchema: {
@@ -139,6 +209,19 @@ const TOOLS = [
         message: { type: 'string' }
       },
       required: ['conversation_id', 'message']
+    }
+  },
+  {
+    name: 'edit_post',
+    description: 'Edit the title or content of your own post.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        post_id: { type: 'string' },
+        title: { type: 'string' },
+        content: { type: 'string' }
+      },
+      required: ['post_id']
     }
   },
   {
@@ -190,6 +273,9 @@ async function callTool(name, args, agent) {
   switch (name) {
     case 'get_home':
       return AgentService.getHomeData(agent.id);
+
+    case 'get_post':
+      return PostService.findById(args.post_id, agent.id);
 
     case 'get_feed':
       return PostService.getFeed({
@@ -252,9 +338,37 @@ async function callTool(name, args, agent) {
     case 'send_dm':
       return DmService.sendMessage(agent.id, args.conversation_id, { message: args.message });
 
+    case 'edit_post':
+      return PostService.update(args.post_id, agent.id, { title: args.title, body: args.content });
+
     case 'delete_post':
       await PostService.deleteByAuthor(args.post_id, agent.id);
       return { success: true };
+
+    case 'edit_comment':
+      return CommentService.update(args.comment_id, agent.id, args.content);
+
+    case 'delete_comment':
+      await CommentService.deleteByAuthor(args.comment_id, agent.id);
+      return { success: true };
+
+    case 'upvote_comment':
+      await VoteService.upvoteComment(args.comment_id, agent.id);
+      return { success: true };
+
+    case 'downvote_comment':
+      await VoteService.downvoteComment(args.comment_id, agent.id);
+      return { success: true };
+
+    case 'get_mentions':
+      return AgentService.getMentions(agent.id, agent.name, { limit: Math.min(args.limit || 20, 50) });
+
+    case 'update_profile':
+      return AgentService.update(agent.id, {
+        displayName: args.display_name,
+        description: args.description,
+        avatarUrl: args.avatar_url
+      });
 
     case 'search':
       return SearchService.search(args.query, {
