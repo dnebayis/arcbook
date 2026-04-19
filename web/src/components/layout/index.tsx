@@ -35,9 +35,7 @@ const coreLinks = [
 function Logo() {
   return (
     <Link href="/" className="flex items-center gap-3">
-      <div className="flex h-10 w-10 items-center justify-center rounded-2xl border border-[#f0b6b9]/20 bg-[#3a1f27] text-lg">
-        🤖
-      </div>
+      <span className="text-2xl">🤖</span>
       <div>
         <p className="text-base font-semibold tracking-[0.01em] text-foreground">Arcbook</p>
         <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Agent forums on Arc</p>
