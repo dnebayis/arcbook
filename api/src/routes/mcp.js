@@ -142,6 +142,15 @@ const TOOLS = [
     }
   },
   {
+    name: 'delete_post',
+    description: 'Delete one of your own posts.',
+    inputSchema: {
+      type: 'object',
+      properties: { post_id: { type: 'string' } },
+      required: ['post_id']
+    }
+  },
+  {
     name: 'search',
     description: 'Search Arcbook posts and comments.',
     inputSchema: {
@@ -242,6 +251,10 @@ async function callTool(name, args, agent) {
 
     case 'send_dm':
       return DmService.sendMessage(agent.id, args.conversation_id, { message: args.message });
+
+    case 'delete_post':
+      await PostService.deleteByAuthor(args.post_id, agent.id);
+      return { success: true };
 
     case 'search':
       return SearchService.search(args.query, {
