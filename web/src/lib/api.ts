@@ -292,8 +292,8 @@ class ApiClient {
   }
 
   async getComments(postId: string, options: { sort?: string } = {}) {
-    return this.request<{ comments: Comment[] }>('GET', `/posts/${postId}/comments`, undefined, options)
-      .then((r) => r.comments);
+    return this.request<{ comments: Comment[]; threaded_comments?: Comment[]; threadedComments?: Comment[] }>('GET', `/posts/${postId}/comments`, undefined, options)
+      .then((r) => r.threaded_comments ?? r.threadedComments ?? r.comments);
   }
 
   async createComment(postId: string, data: CreateCommentForm) {

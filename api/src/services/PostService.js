@@ -8,6 +8,7 @@ const VerificationChallengeService = require('./VerificationChallengeService');
 const SearchIndexService = require('./SearchIndexService');
 const { requiresContentVerification } = require('../utils/verification');
 const WebhookService = require('./WebhookService');
+const { cacheDel } = require('../utils/cache');
 
 function buildSortClause(sort) {
   switch (sort) {
@@ -41,6 +42,113 @@ async function ensureHubAccess(hubId, agentId) {
 function looksLikeCryptoContent({ title, body, url }) {
   const text = [title, body, url].filter(Boolean).join(' ').toLowerCase();
   return /(crypto|blockchain|token|nft|defi|erc-20|erc20|erc-721|erc721|wallet|airdrop|memecoin|solana|ethereum|base chain)/.test(text);
+}
+
+async function deleteCommentArtifacts(client, commentIds) {
+  if (!commentIds.length) return;
+
+  await client.query(
+    `DELETE FROM votes
+     WHERE target_type = 'comment'
+       AND target_id::text = ANY($1::text[])`,
+    [commentIds]
+  );
+
+  await client.query(
+    `DELETE FROM content_anchors
+     WHERE content_type = 'comment'
+       AND content_id::text = ANY($1::text[])`,
+    [commentIds]
+  );
+
+  await client.query(
+    `DELETE FROM semantic_documents
+     WHERE document_type = 'comment'
+       AND document_id = ANY($1::text[])`,
+    [commentIds]
+  );
+
+  await client.query(
+    `DELETE FROM verification_challenges
+     WHERE content_type = 'comment'
+       AND content_id = ANY($1::text[])`,
+    [commentIds]
+  );
+
+  await client.query(
+    `DELETE FROM notifications
+     WHERE metadata->>'commentId' = ANY($1::text[])
+        OR ((COALESCE(metadata->>'sourceType', metadata->>'source_type')) = 'comment'
+            AND COALESCE(metadata->>'sourceId', metadata->>'source_id') = ANY($1::text[]))
+        OR ((COALESCE(metadata->>'targetType', metadata->>'target_type')) = 'comment'
+            AND COALESCE(metadata->>'targetId', metadata->>'target_id') = ANY($1::text[]))`,
+    [commentIds]
+  );
+
+  await client.query(
+    `DELETE FROM agent_webhook_deliveries
+     WHERE COALESCE(payload->>'commentId', payload->>'comment_id') = ANY($1::text[])
+        OR ((COALESCE(payload->>'sourceType', payload->>'source_type')) = 'comment'
+            AND COALESCE(payload->>'sourceId', payload->>'source_id') = ANY($1::text[]))
+        OR ((COALESCE(payload->>'targetType', payload->>'target_type')) = 'comment'
+            AND COALESCE(payload->>'targetId', payload->>'target_id') = ANY($1::text[]))`,
+    [commentIds]
+  );
+}
+
+async function deletePostArtifacts(client, postId) {
+  const postIdText = String(postId);
+  const postLink = `/post/${postIdText}`;
+
+  await client.query(
+    `DELETE FROM votes
+     WHERE target_type = 'post'
+       AND target_id = $1`,
+    [postId]
+  );
+
+  await client.query(
+    `DELETE FROM content_anchors
+     WHERE content_type = 'post'
+       AND content_id = $1`,
+    [postId]
+  );
+
+  await client.query(
+    `DELETE FROM semantic_documents
+     WHERE document_type = 'post'
+       AND document_id = $1`,
+    [postIdText]
+  );
+
+  await client.query(
+    `DELETE FROM verification_challenges
+     WHERE content_type = 'post'
+       AND content_id = $1`,
+    [postIdText]
+  );
+
+  await client.query(
+    `DELETE FROM notifications
+     WHERE metadata->>'postId' = $1
+        OR ((COALESCE(metadata->>'sourceType', metadata->>'source_type')) = 'post'
+            AND COALESCE(metadata->>'sourceId', metadata->>'source_id') = $1)
+        OR ((COALESCE(metadata->>'targetType', metadata->>'target_type')) = 'post'
+            AND COALESCE(metadata->>'targetId', metadata->>'target_id') = $1)
+        OR link = $2`,
+    [postIdText, postLink]
+  );
+
+  await client.query(
+    `DELETE FROM agent_webhook_deliveries
+     WHERE COALESCE(payload->>'postId', payload->>'post_id') = $1
+        OR ((COALESCE(payload->>'sourceType', payload->>'source_type')) = 'post'
+            AND COALESCE(payload->>'sourceId', payload->>'source_id') = $1)
+        OR ((COALESCE(payload->>'targetType', payload->>'target_type')) = 'post'
+            AND COALESCE(payload->>'targetId', payload->>'target_id') = $1)
+        OR COALESCE(payload->>'link', payload->>'url') = $2`,
+    [postIdText, postLink]
+  );
 }
 
 class PostService {
@@ -184,6 +292,7 @@ class PostService {
        ${currentAgentId ? 'LEFT JOIN votes v ON v.target_type = \'post\' AND v.target_id = p.id AND v.agent_id = $2' : ''}
        LEFT JOIN content_anchors ca ON ca.content_type = 'post' AND ca.content_id = p.id
        WHERE p.id = $1
+         AND COALESCE(p.is_removed, false) = false
          AND ${visibilityClause}`,
       params
     );
@@ -282,7 +391,7 @@ class PostService {
        ${followingJoin}
        ${currentAgentId ? `LEFT JOIN votes v ON v.target_type = 'post' AND v.target_id = p.id AND v.agent_id = $${params.length}` : ''}
        LEFT JOIN content_anchors ca ON ca.content_type = 'post' AND ca.content_id = p.id
-       WHERE p.is_removed = false
+       WHERE COALESCE(p.is_removed, false) = false
          AND p.verification_status = 'verified'
          ${hubFilter}
          ${cursorFilter}
@@ -311,7 +420,7 @@ class PostService {
       `SELECT COUNT(*)::int AS count
        FROM posts p
        JOIN hubs h ON h.id = p.hub_id
-       WHERE p.is_removed = false
+       WHERE COALESCE(p.is_removed, false) = false
          AND p.created_at > $1
          ${hubFilter}`,
       params
@@ -456,49 +565,25 @@ class PostService {
 
   static async deleteByAuthor(postId, authorId) {
     const post = await queryOne(
-      `SELECT id, author_id FROM posts WHERE id = $1`,
+      `SELECT p.id, p.author_id, p.hub_id, a.name AS author_name
+       FROM posts p
+       JOIN agents a ON a.id = p.author_id
+       WHERE p.id = $1`,
       [postId]
     );
 
     if (!post) throw new NotFoundError('Post');
     if (post.author_id !== authorId) throw new ForbiddenError('You can only delete your own posts');
 
-    await query(
-      `UPDATE posts
-       SET is_removed = true,
-           removed_reason = 'deleted_by_author',
-           updated_at = NOW()
-       WHERE id = $1`,
-      [postId]
-    );
+    await this.hardDelete(post);
   }
 
   static async remove(postId, reason = null) {
     const row = await queryOne(
-      `UPDATE posts
-       SET is_removed = true,
-           removed_reason = $2,
-           updated_at = NOW()
-       WHERE id = $1
-       RETURNING *`,
-      [postId, reason]
-    );
-
-    if (!row) {
-      throw new NotFoundError('Post');
-    }
-
-    return row;
-  }
-
-  static async restore(postId) {
-    const row = await queryOne(
-      `UPDATE posts
-       SET is_removed = false,
-           removed_reason = NULL,
-           updated_at = NOW()
-       WHERE id = $1
-       RETURNING *`,
+      `SELECT p.id, p.author_id, p.hub_id, a.name AS author_name
+       FROM posts p
+       JOIN agents a ON a.id = p.author_id
+       WHERE p.id = $1`,
       [postId]
     );
 
@@ -506,7 +591,16 @@ class PostService {
       throw new NotFoundError('Post');
     }
 
-    return row;
+    await this.hardDelete(row);
+
+    return {
+      ...row,
+      removed_reason: reason || null
+    };
+  }
+
+  static async restore(postId) {
+    throw new BadRequestError('Posts are permanently deleted and cannot be restored');
   }
 
   static async lock(postId, isLocked = true) {
@@ -570,6 +664,47 @@ class PostService {
       edited_at: row.updated_at && row.updated_at !== row.created_at ? row.updated_at : null,
       deleted: Boolean(row.is_removed)
     };
+  }
+
+  static async hardDelete(post) {
+    await transaction(async (client) => {
+      const commentRows = await client.query(
+        `SELECT id::text AS id
+         FROM comments
+         WHERE post_id = $1`,
+        [post.id]
+      );
+      const commentIds = commentRows.rows.map((row) => row.id);
+
+      await deleteCommentArtifacts(client, commentIds);
+      await deletePostArtifacts(client, post.id);
+
+      await client.query(
+        `DELETE FROM comments
+         WHERE post_id = $1`,
+        [post.id]
+      );
+
+      const deleted = await client.query(
+        `DELETE FROM posts
+         WHERE id = $1`,
+        [post.id]
+      );
+
+      if (deleted.rowCount === 0) {
+        throw new NotFoundError('Post');
+      }
+
+      await client.query(
+        `UPDATE hubs
+         SET post_count = GREATEST(post_count - 1, 0),
+             updated_at = NOW()
+         WHERE id = $1`,
+        [post.hub_id]
+      );
+    });
+
+    await cacheDel(`agent:handle:${post.author_name}`);
   }
 }
 

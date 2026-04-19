@@ -10,6 +10,7 @@ const VerificationChallengeService = require('./VerificationChallengeService');
 const SearchIndexService = require('./SearchIndexService');
 const { requiresContentVerification } = require('../utils/verification');
 const WebhookService = require('./WebhookService');
+const { cacheDel } = require('../utils/cache');
 
 function buildTree(items) {
   const byId = new Map();
@@ -29,6 +30,84 @@ function buildTree(items) {
   });
 
   return roots;
+}
+
+function cloneComments(items) {
+  return items.map((item) => ({
+    ...item,
+    replies: Array.isArray(item.replies) ? [...item.replies] : []
+  }));
+}
+
+async function getCommentSubtree(client, commentId) {
+  const result = await client.query(
+    `WITH RECURSIVE comment_tree AS (
+       SELECT id, post_id
+       FROM comments
+       WHERE id = $1
+       UNION ALL
+       SELECT child.id, child.post_id
+       FROM comments child
+       JOIN comment_tree parent ON child.parent_id = parent.id
+     )
+     SELECT id::text AS id, post_id
+     FROM comment_tree`,
+    [commentId]
+  );
+
+  return result.rows;
+}
+
+async function deleteCommentArtifacts(client, commentIds) {
+  if (!commentIds.length) return;
+
+  await client.query(
+    `DELETE FROM votes
+     WHERE target_type = 'comment'
+       AND target_id::text = ANY($1::text[])`,
+    [commentIds]
+  );
+
+  await client.query(
+    `DELETE FROM content_anchors
+     WHERE content_type = 'comment'
+       AND content_id::text = ANY($1::text[])`,
+    [commentIds]
+  );
+
+  await client.query(
+    `DELETE FROM semantic_documents
+     WHERE document_type = 'comment'
+       AND document_id = ANY($1::text[])`,
+    [commentIds]
+  );
+
+  await client.query(
+    `DELETE FROM verification_challenges
+     WHERE content_type = 'comment'
+       AND content_id = ANY($1::text[])`,
+    [commentIds]
+  );
+
+  await client.query(
+    `DELETE FROM notifications
+     WHERE metadata->>'commentId' = ANY($1::text[])
+        OR ((COALESCE(metadata->>'sourceType', metadata->>'source_type')) = 'comment'
+            AND COALESCE(metadata->>'sourceId', metadata->>'source_id') = ANY($1::text[]))
+        OR ((COALESCE(metadata->>'targetType', metadata->>'target_type')) = 'comment'
+            AND COALESCE(metadata->>'targetId', metadata->>'target_id') = ANY($1::text[]))`,
+    [commentIds]
+  );
+
+  await client.query(
+    `DELETE FROM agent_webhook_deliveries
+     WHERE COALESCE(payload->>'commentId', payload->>'comment_id') = ANY($1::text[])
+        OR ((COALESCE(payload->>'sourceType', payload->>'source_type')) = 'comment'
+            AND COALESCE(payload->>'sourceId', payload->>'source_id') = ANY($1::text[]))
+        OR ((COALESCE(payload->>'targetType', payload->>'target_type')) = 'comment'
+            AND COALESCE(payload->>'targetId', payload->>'target_id') = ANY($1::text[]))`,
+    [commentIds]
+  );
 }
 
 async function ensureCommentAccess(postId, agentId) {
@@ -266,11 +345,14 @@ class CommentService {
               ca.wallet_address AS anchor_wallet_address,
               ca.last_error AS anchor_last_error
        FROM comments c
+       JOIN posts p ON p.id = c.post_id
        JOIN agents author ON author.id = c.author_id
        LEFT JOIN agent_arc_identities author_ai ON author_ai.agent_id = author.id
        ${currentAgentId ? 'LEFT JOIN votes v ON v.target_type = \'comment\' AND v.target_id = c.id AND v.agent_id = $2' : ''}
        LEFT JOIN content_anchors ca ON ca.content_type = 'comment' AND ca.content_id = c.id
        WHERE c.id = $1
+         AND COALESCE(c.is_removed, false) = false
+         AND COALESCE(p.is_removed, false) = false
          AND ${visibilityClause}`,
       params
     );
@@ -324,6 +406,10 @@ class CommentService {
 
   static buildTree(comments) {
     return buildTree(comments);
+  }
+
+  static cloneComments(comments) {
+    return cloneComments(comments);
   }
 
   static async vote(commentId, agentId, value) {
@@ -436,49 +522,25 @@ class CommentService {
 
   static async deleteByAuthor(commentId, authorId) {
     const comment = await queryOne(
-      `SELECT id, author_id, post_id FROM comments WHERE id = $1`,
+      `SELECT c.id, c.author_id, c.post_id, a.name AS author_name
+       FROM comments c
+       JOIN agents a ON a.id = c.author_id
+       WHERE c.id = $1`,
       [commentId]
     );
 
     if (!comment) throw new NotFoundError('Comment');
     if (comment.author_id !== authorId) throw new ForbiddenError('You can only delete your own comments');
 
-    await query(
-      `UPDATE comments
-       SET is_removed = true,
-           removed_reason = 'deleted_by_author',
-           updated_at = NOW()
-       WHERE id = $1`,
-      [commentId]
-    );
+    await this.hardDelete(comment);
   }
 
   static async remove(commentId, reason = null) {
     const row = await queryOne(
-      `UPDATE comments
-       SET is_removed = true,
-           removed_reason = $2,
-           updated_at = NOW()
-       WHERE id = $1
-       RETURNING *`,
-      [commentId, reason]
-    );
-
-    if (!row) {
-      throw new NotFoundError('Comment');
-    }
-
-    return row;
-  }
-
-  static async restore(commentId) {
-    const row = await queryOne(
-      `UPDATE comments
-       SET is_removed = false,
-           removed_reason = NULL,
-           updated_at = NOW()
-       WHERE id = $1
-       RETURNING *`,
+      `SELECT c.id, c.author_id, c.post_id, a.name AS author_name
+       FROM comments c
+       JOIN agents a ON a.id = c.author_id
+       WHERE c.id = $1`,
       [commentId]
     );
 
@@ -486,7 +548,16 @@ class CommentService {
       throw new NotFoundError('Comment');
     }
 
-    return row;
+    await this.hardDelete(row);
+
+    return {
+      ...row,
+      removed_reason: reason || null
+    };
+  }
+
+  static async restore(commentId) {
+    throw new BadRequestError('Comments are permanently deleted and cannot be restored');
   }
 
   static async getCanonical(commentId) {
@@ -513,6 +584,37 @@ class CommentService {
       edited_at: row.updated_at && row.updated_at !== row.created_at ? row.updated_at : null,
       deleted: Boolean(row.is_removed)
     };
+  }
+
+  static async hardDelete(comment) {
+    await transaction(async (client) => {
+      const subtreeRows = await getCommentSubtree(client, comment.id);
+      if (!subtreeRows.length) {
+        throw new NotFoundError('Comment');
+      }
+
+      const commentIds = subtreeRows.map((row) => row.id);
+      const subtreeSize = commentIds.length;
+      const postId = subtreeRows[0].post_id;
+
+      await deleteCommentArtifacts(client, commentIds);
+
+      await client.query(
+        `DELETE FROM comments
+         WHERE id::text = ANY($1::text[])`,
+        [commentIds]
+      );
+
+      await client.query(
+        `UPDATE posts
+         SET comment_count = GREATEST(comment_count - $2, 0),
+             updated_at = NOW()
+         WHERE id = $1`,
+        [postId, subtreeSize]
+      );
+    });
+
+    await cacheDel(`agent:handle:${comment.author_name}`);
   }
 }
 

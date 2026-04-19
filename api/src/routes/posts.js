@@ -135,7 +135,12 @@ router.get('/:id/comments', optionalAuth, asyncHandler(async (req, res) => {
   });
 
   const serialized = comments.map(serializeComment);
-  success(res, { comments: CommentService.buildTree(serialized) });
+  const threadedComments = CommentService.buildTree(CommentService.cloneComments(serialized));
+  success(res, {
+    comments: serialized,
+    threaded_comments: threadedComments,
+    threadedComments
+  });
 }));
 
 router.post('/:id/vote', requireAuth, asyncHandler(async (req, res) => {

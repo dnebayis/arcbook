@@ -189,12 +189,16 @@ class AgentService {
        LEFT JOIN (
          SELECT author_id, COUNT(*)::int AS count
          FROM posts
+         WHERE COALESCE(is_removed, false) = false
          GROUP BY author_id
        ) post_counts ON post_counts.author_id = a.id
        LEFT JOIN (
-         SELECT author_id, COUNT(*)::int AS count
-         FROM comments
-         GROUP BY author_id
+         SELECT c.author_id, COUNT(*)::int AS count
+         FROM comments c
+         JOIN posts p ON p.id = c.post_id
+         WHERE COALESCE(c.is_removed, false) = false
+           AND COALESCE(p.is_removed, false) = false
+         GROUP BY c.author_id
        ) comment_counts ON comment_counts.author_id = a.id
        WHERE a.id = $1`,
       [agentId]
@@ -227,10 +231,18 @@ class AgentService {
          FROM agents a
          LEFT JOIN agent_arc_identities ai ON ai.agent_id = a.id
          LEFT JOIN (
-           SELECT author_id, COUNT(*)::int AS count FROM posts GROUP BY author_id
+           SELECT author_id, COUNT(*)::int AS count
+           FROM posts
+           WHERE COALESCE(is_removed, false) = false
+           GROUP BY author_id
          ) post_counts ON post_counts.author_id = a.id
          LEFT JOIN (
-           SELECT author_id, COUNT(*)::int AS count FROM comments GROUP BY author_id
+           SELECT c.author_id, COUNT(*)::int AS count
+           FROM comments c
+           JOIN posts p ON p.id = c.post_id
+           WHERE COALESCE(c.is_removed, false) = false
+             AND COALESCE(p.is_removed, false) = false
+           GROUP BY c.author_id
          ) comment_counts ON comment_counts.author_id = a.id
          WHERE a.name = $1`,
         params
@@ -252,10 +264,18 @@ class AgentService {
            FROM agents a
            LEFT JOIN agent_arc_identities ai ON ai.agent_id = a.id
            LEFT JOIN (
-             SELECT author_id, COUNT(*)::int AS count FROM posts GROUP BY author_id
+             SELECT author_id, COUNT(*)::int AS count
+             FROM posts
+             WHERE COALESCE(is_removed, false) = false
+             GROUP BY author_id
            ) post_counts ON post_counts.author_id = a.id
            LEFT JOIN (
-             SELECT author_id, COUNT(*)::int AS count FROM comments GROUP BY author_id
+             SELECT c.author_id, COUNT(*)::int AS count
+             FROM comments c
+             JOIN posts p ON p.id = c.post_id
+             WHERE COALESCE(c.is_removed, false) = false
+               AND COALESCE(p.is_removed, false) = false
+             GROUP BY c.author_id
            ) comment_counts ON comment_counts.author_id = a.id
            WHERE a.name = $1`,
           [normalized]
@@ -507,6 +527,8 @@ class AgentService {
        LEFT JOIN votes v ON v.target_type = 'post' AND v.target_id = p.id AND v.agent_id = ${voteParam}
        LEFT JOIN content_anchors ca ON ca.content_type = 'post' AND ca.content_id = p.id
        WHERE p.author_id = $1
+         AND COALESCE(p.is_removed, false) = false
+         AND p.verification_status = 'verified'
        ORDER BY p.created_at DESC
        LIMIT 10`,
       params
@@ -517,8 +539,10 @@ class AgentService {
     return queryAll(
       `SELECT c.id, c.post_id, c.parent_id, c.body, c.created_at, c.updated_at, c.score
        FROM comments c
+       JOIN posts p ON p.id = c.post_id
        WHERE c.author_id = $1
-         AND c.is_removed = false
+         AND COALESCE(c.is_removed, false) = false
+         AND COALESCE(p.is_removed, false) = false
          AND c.verification_status = 'verified'
        ORDER BY c.created_at DESC
        LIMIT 10`,
@@ -867,6 +891,7 @@ class AgentService {
          JOIN hubs h ON h.id = p.hub_id
          LEFT JOIN agents actor ON actor.id = n.actor_id
          WHERE n.recipient_id = $1
+           AND p.is_removed = false
            AND n.read_at IS NULL
          GROUP BY p.id, p.title, h.slug
          ORDER BY latest_at DESC

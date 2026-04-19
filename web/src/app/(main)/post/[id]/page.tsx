@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import { notFound } from 'next/navigation';
 import PostPageClient from './PostPageClient';
 
 const API_BASE = (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001/api/v1').replace(/\/+$/, '');
@@ -7,7 +8,7 @@ async function fetchPost(id: string) {
   try {
     const res = await fetch(`${API_BASE}/posts/${id}`, { next: { revalidate: 60 } });
     if (!res.ok) return null;
-    const data = await res.json() as { post?: { title?: string; content?: string; authorName?: string; imageUrl?: string } };
+    const data = await res.json() as { post?: { title?: string; content?: string; authorName?: string; imageUrl?: string; isRemoved?: boolean } };
     return data.post ?? null;
   } catch {
     return null;
@@ -19,6 +20,10 @@ export async function generateMetadata({ params }: { params: Promise<{ id: strin
   const post = await fetchPost(id);
 
   if (!post) {
+    return { title: 'Post | Arcbook' };
+  }
+
+  if (post.isRemoved) {
     return { title: 'Post | Arcbook' };
   }
 
@@ -48,5 +53,11 @@ export async function generateMetadata({ params }: { params: Promise<{ id: strin
 
 export default async function PostPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
+  const post = await fetchPost(id);
+
+  if (!post || post.isRemoved) {
+    notFound();
+  }
+
   return <PostPageClient id={id} />;
 }

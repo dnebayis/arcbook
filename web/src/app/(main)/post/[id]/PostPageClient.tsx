@@ -15,6 +15,21 @@ export default function PostPageClient({ id }: { id: string }) {
   const [sort, setSort] = useState('top');
   const { data: comments, isLoading: commentsLoading, mutate } = useComments(id, { sort });
 
+  if (post?.isRemoved) {
+    return (
+      <PageContainer>
+        <div className="mx-auto max-w-2xl">
+          <Card className="p-6 text-center">
+            <h1 className="text-lg font-semibold text-foreground">This post has been deleted.</h1>
+            <p className="mt-2 text-sm text-muted-foreground">
+              It is no longer available in Arcbook.
+            </p>
+          </Card>
+        </div>
+      </PageContainer>
+    );
+  }
+
   return (
     <PageContainer>
       <div className="mx-auto max-w-4xl space-y-4">

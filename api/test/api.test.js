@@ -532,6 +532,215 @@ describe('DM Helpers', () => {
   });
 });
 
+describe('Comment Threads', () => {
+  test('threaded comment view can be built without mutating the flat list', () => {
+    delete require.cache[require.resolve('../src/services/CommentService')];
+    const CommentService = require('../src/services/CommentService');
+
+    const flatComments = [
+      { id: '36', parentId: null, replies: [] },
+      { id: '37', parentId: '36', replies: [] },
+      { id: '38', parentId: '37', replies: [] }
+    ];
+
+    const threaded = CommentService.buildTree(CommentService.cloneComments(flatComments));
+
+    assertEqual(flatComments.length, 3, 'Flat list should preserve all comments');
+    assertEqual(flatComments[0].replies.length, 0, 'Flat list should remain unnested');
+    assertEqual(threaded.length, 1, 'Only one root comment should remain at top level');
+    assertEqual(threaded[0].id, '36');
+    assertEqual(threaded[0].replies.length, 1, 'First reply should be nested under its parent');
+    assertEqual(threaded[0].replies[0].id, '37');
+    assertEqual(threaded[0].replies[0].replies[0].id, '38');
+  });
+});
+
+describe('Listing Filters', () => {
+  test('post feed query excludes removed posts defensively', async () => {
+    const db = require('../src/config/database');
+    const originalQueryAll = db.queryAll;
+    let capturedSql = null;
+
+    db.queryAll = async (sql) => {
+      capturedSql = sql;
+      return [];
+    };
+
+    delete require.cache[require.resolve('../src/services/PostService')];
+    const PostService = require('../src/services/PostService');
+
+    try {
+      await PostService.getFeed({ sort: 'new', limit: 10 });
+      assert(capturedSql && capturedSql.includes('COALESCE(p.is_removed, false) = false'), 'Feed query should exclude removed posts');
+    } finally {
+      db.queryAll = originalQueryAll;
+      delete require.cache[require.resolve('../src/services/PostService')];
+    }
+  });
+
+  test('home activity query excludes removed posts', async () => {
+    const db = require('../src/config/database');
+    const PostService = require('../src/services/PostService');
+    const originalQueryOne = db.queryOne;
+    const originalQueryAll = db.queryAll;
+    const originalGetFeed = PostService.getFeed;
+    let activitySql = null;
+
+    db.queryOne = async (sql) => {
+      if (sql.includes('FROM agents a')) {
+        return { id: 'agent-1', name: 'alice', display_name: 'Alice', following_count: 0, karma: 0, status: 'active', suspended_until: null, created_at: new Date().toISOString() };
+      }
+      if (sql.includes('FROM notifications WHERE recipient_id')) {
+        return { count: 0 };
+      }
+      if (sql.includes('FROM dm_conversations')) {
+        return { pending_request_count: 0, unread_message_count: 0 };
+      }
+      if (sql.includes("FROM posts p") && sql.includes("h.slug = 'announcements'")) {
+        return null;
+      }
+      return null;
+    };
+
+    db.queryAll = async (sql) => {
+      if (sql.includes('FROM notifications n')) {
+        activitySql = sql;
+        return [];
+      }
+      return [];
+    };
+
+    PostService.getFeed = async () => ({ posts: [] });
+
+    delete require.cache[require.resolve('../src/services/AgentService')];
+    const AgentService = require('../src/services/AgentService');
+
+    try {
+      await AgentService.getHomeData('agent-1');
+      assert(activitySql && activitySql.includes('AND p.is_removed = false'), 'Home activity query should exclude removed posts');
+    } finally {
+      db.queryOne = originalQueryOne;
+      db.queryAll = originalQueryAll;
+      PostService.getFeed = originalGetFeed;
+      delete require.cache[require.resolve('../src/services/AgentService')];
+    }
+  });
+
+  test('profile recent posts query excludes removed posts', async () => {
+    const db = require('../src/config/database');
+    const originalQueryAll = db.queryAll;
+    let capturedSql = null;
+
+    db.queryAll = async (sql) => {
+      capturedSql = sql;
+      return [];
+    };
+
+    delete require.cache[require.resolve('../src/services/AgentService')];
+    const AgentService = require('../src/services/AgentService');
+
+    try {
+      await AgentService.getRecentPosts('agent-1');
+      assert(capturedSql && capturedSql.includes('COALESCE(p.is_removed, false) = false'), 'Profile posts query should exclude removed posts');
+    } finally {
+      db.queryAll = originalQueryAll;
+      delete require.cache[require.resolve('../src/services/AgentService')];
+    }
+  });
+});
+
+describe('Hard Deletes', () => {
+  test('post deletion removes the row and related artifacts', async () => {
+    const db = require('../src/config/database');
+    const cache = require('../src/utils/cache');
+    const originalQueryOne = db.queryOne;
+    const originalTransaction = db.transaction;
+    const originalCacheDel = cache.cacheDel;
+    const executedSql = [];
+
+    db.queryOne = async () => ({
+      id: 27,
+      author_id: 'agent-1',
+      hub_id: 9,
+      author_name: 'alice'
+    });
+
+    db.transaction = async (callback) => callback({
+      query: async (sql) => {
+        executedSql.push(sql);
+        if (sql.includes('SELECT id::text AS id') && sql.includes('FROM comments')) {
+          return { rows: [{ id: '36' }, { id: '37' }], rowCount: 2 };
+        }
+        if (sql.includes('DELETE FROM posts')) {
+          return { rows: [], rowCount: 1 };
+        }
+        return { rows: [], rowCount: 0 };
+      }
+    });
+
+    cache.cacheDel = async () => {};
+
+    delete require.cache[require.resolve('../src/services/PostService')];
+    const PostService = require('../src/services/PostService');
+
+    try {
+      await PostService.deleteByAuthor(27, 'agent-1');
+      assert(executedSql.some((sql) => sql.includes('DELETE FROM comments')), 'Post delete should remove child comments');
+      assert(executedSql.some((sql) => sql.includes('DELETE FROM posts')), 'Post delete should remove the post row');
+      assert(executedSql.some((sql) => sql.includes('DELETE FROM semantic_documents')), 'Post delete should clean search documents');
+      assert(executedSql.some((sql) => sql.includes('UPDATE hubs')), 'Post delete should decrement hub post_count');
+    } finally {
+      db.queryOne = originalQueryOne;
+      db.transaction = originalTransaction;
+      cache.cacheDel = originalCacheDel;
+      delete require.cache[require.resolve('../src/services/PostService')];
+    }
+  });
+
+  test('comment deletion removes the full reply subtree and fixes post counts', async () => {
+    const db = require('../src/config/database');
+    const cache = require('../src/utils/cache');
+    const originalQueryOne = db.queryOne;
+    const originalTransaction = db.transaction;
+    const originalCacheDel = cache.cacheDel;
+    const executedSql = [];
+
+    db.queryOne = async () => ({
+      id: 36,
+      author_id: 'agent-1',
+      post_id: 17,
+      author_name: 'alice'
+    });
+
+    db.transaction = async (callback) => callback({
+      query: async (sql) => {
+        executedSql.push(sql);
+        if (sql.includes('WITH RECURSIVE comment_tree')) {
+          return { rows: [{ id: '36', post_id: 17 }, { id: '37', post_id: 17 }], rowCount: 2 };
+        }
+        return { rows: [], rowCount: 1 };
+      }
+    });
+
+    cache.cacheDel = async () => {};
+
+    delete require.cache[require.resolve('../src/services/CommentService')];
+    const CommentService = require('../src/services/CommentService');
+
+    try {
+      await CommentService.deleteByAuthor(36, 'agent-1');
+      assert(executedSql.some((sql) => sql.includes('WITH RECURSIVE comment_tree')), 'Comment delete should load the reply subtree');
+      assert(executedSql.some((sql) => sql.includes('DELETE FROM comments')), 'Comment delete should remove subtree rows');
+      assert(executedSql.some((sql) => sql.includes('UPDATE posts')), 'Comment delete should decrement post comment_count');
+    } finally {
+      db.queryOne = originalQueryOne;
+      db.transaction = originalTransaction;
+      cache.cacheDel = originalCacheDel;
+      delete require.cache[require.resolve('../src/services/CommentService')];
+    }
+  });
+});
+
 describe('Route Mounts', () => {
   test('api router mounts hubs alias alongside submolts', () => {
     const routePatterns = apiRoutes.stack
