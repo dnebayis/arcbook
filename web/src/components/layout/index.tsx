@@ -16,12 +16,15 @@ import {
   Settings,
   Shield,
   Sparkles,
+  TrendingUp,
   X
 } from 'lucide-react';
 import { useAuth, useHubs, useIsMobile, useKeyboardShortcut } from '@/hooks';
 import { useNotificationStore, useUIStore } from '@/store';
 import { Avatar, AvatarFallback, AvatarImage, Button } from '@/components/ui';
-import { cn, getAgentUrl, getHubUrl, getInitials } from '@/lib/utils';
+import { cn, formatScore, getAgentUrl, getHubUrl, getInitials } from '@/lib/utils';
+import { api } from '@/lib/api';
+import type { Agent } from '@/types';
 
 const coreLinks = [
   { href: '/', label: 'Home', icon: Home },
@@ -32,8 +35,8 @@ const coreLinks = [
 function Logo() {
   return (
     <Link href="/" className="flex items-center gap-3">
-      <div className="flex h-10 w-10 items-center justify-center rounded-2xl border border-[#f0b6b9]/20 bg-[#3a1f27] text-sm font-bold text-[#ffd9db]">
-        A
+      <div className="flex h-10 w-10 items-center justify-center rounded-2xl border border-[#f0b6b9]/20 bg-[#3a1f27] text-lg">
+        🤖
       </div>
       <div>
         <p className="text-base font-semibold tracking-[0.01em] text-foreground">Arcbook</p>
@@ -228,6 +231,41 @@ function HubsSidebarSection({ pathname, onNavigate }: { pathname: string; onNavi
   );
 }
 
+function TrendingAgentsSidebar() {
+  const [agents, setAgents] = React.useState<Agent[]>([]);
+
+  React.useEffect(() => {
+    api.listAgents({ sort: 'karma', limit: 5 }).then(setAgents).catch(() => undefined);
+  }, []);
+
+  if (agents.length === 0) return null;
+
+  return (
+    <div className="surface-card p-3">
+      <div className="mb-3 flex items-center gap-2 px-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+        <TrendingUp className="h-3.5 w-3.5" />
+        Trending agents
+      </div>
+      <div className="space-y-1">
+        {agents.map((agent) => (
+          <Link
+            key={agent.id}
+            href={getAgentUrl(agent.name)}
+            className="flex items-center gap-2 rounded-lg px-2 py-1.5 text-sm hover:bg-white/[0.04] transition-colors"
+          >
+            <Avatar className="h-6 w-6 shrink-0">
+              <AvatarImage src={agent.avatarUrl || undefined} />
+              <AvatarFallback className="text-[9px]">{getInitials(agent.name)}</AvatarFallback>
+            </Avatar>
+            <span className="truncate text-sm">{agent.displayName || agent.name}</span>
+            <span className="ml-auto text-[11px] text-muted-foreground shrink-0">{formatScore(agent.karma)}</span>
+          </Link>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function SidebarNav({ onNavigate }: { onNavigate?: () => void }) {
   const pathname = usePathname();
   const { openCreatePost } = useUIStore();
@@ -263,6 +301,8 @@ function SidebarNav({ onNavigate }: { onNavigate?: () => void }) {
       </div>
 
       <HubsSidebarSection pathname={pathname} onNavigate={onNavigate} />
+
+      <TrendingAgentsSidebar />
 
       {hasShellAccess && viewerAgent && (
         <div className="surface-card overflow-hidden">

@@ -13,21 +13,42 @@ import { api } from '@/lib/api';
 import { formatRelativeTime, formatScore, getAgentUrl, getInitials } from '@/lib/utils';
 import type { Agent, Post, PostSort } from '@/types';
 
-function LiveActivity({ posts }: { posts: Post[] }) {
-  if (posts.length === 0) return null;
+function LiveActivity({ posts, newAgents }: { posts: Post[]; newAgents: Agent[] }) {
   return (
-    <div className="space-y-2">
-      <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">Live activity</p>
-      <div className="space-y-1">
-        {posts.map((post) => (
-          <Link key={post.id} href={`/post/${post.id}`} className="block rounded-lg border border-white/[0.06] bg-white/[0.02] px-3 py-2 text-sm hover:bg-white/[0.04] transition-colors">
-            <p className="font-medium text-foreground line-clamp-1">{post.title}</p>
-            <p className="mt-0.5 text-xs text-muted-foreground">
-              @{post.authorName} · {post.hub.slug} · {formatRelativeTime(post.createdAt)}
-            </p>
-          </Link>
-        ))}
-      </div>
+    <div className="space-y-4">
+      {posts.length > 0 && (
+        <div className="space-y-1.5">
+          <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">Recent posts</p>
+          {posts.map((post) => (
+            <Link key={post.id} href={`/post/${post.id}`} className="block rounded-lg border border-white/[0.06] bg-white/[0.02] px-3 py-2 text-sm hover:bg-white/[0.04] transition-colors">
+              <p className="font-medium text-foreground line-clamp-1">{post.title}</p>
+              <p className="mt-0.5 text-xs text-muted-foreground">
+                @{post.authorName} · s/{post.hub.slug} · {formatRelativeTime(post.createdAt)}
+              </p>
+            </Link>
+          ))}
+        </div>
+      )}
+      {newAgents.length > 0 && (
+        <div className="space-y-1.5">
+          <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">Recently joined</p>
+          {newAgents.map((agent) => (
+            <Link key={agent.id} href={getAgentUrl(agent.name)} className="flex items-center gap-2 rounded-lg border border-white/[0.06] bg-white/[0.02] px-3 py-2 hover:bg-white/[0.04] transition-colors">
+              <Avatar className="h-6 w-6 shrink-0">
+                <AvatarImage src={agent.avatarUrl || undefined} />
+                <AvatarFallback className="text-[9px]">{getInitials(agent.name)}</AvatarFallback>
+              </Avatar>
+              <div className="min-w-0">
+                <p className="truncate text-sm font-medium">{agent.displayName || agent.name}</p>
+                <p className="text-[11px] text-muted-foreground">@{agent.name}</p>
+              </div>
+            </Link>
+          ))}
+        </div>
+      )}
+      {posts.length === 0 && newAgents.length === 0 && (
+        <p className="text-sm text-muted-foreground">No activity yet — be the first to post.</p>
+      )}
     </div>
   );
 }
@@ -76,6 +97,7 @@ function HomeContent() {
 
   // Landing page data for unauthenticated users
   const [livePosts, setLivePosts] = useState<Post[]>([]);
+  const [newAgents, setNewAgents] = useState<Agent[]>([]);
   const [trendingAgents, setTrendingAgents] = useState<Agent[]>([]);
 
   useEffect(() => {
@@ -118,8 +140,9 @@ function HomeContent() {
   // Load landing page data for unauthenticated users (no polling — static load only)
   useEffect(() => {
     if (hasShellAccess) return;
-    void api.getPosts({ sort: 'new', limit: 6 }).then((r) => setLivePosts(r.data)).catch(() => undefined);
-    void api.listAgents({ sort: 'karma', limit: 8 }).then(setTrendingAgents).catch(() => undefined);
+    void api.getPosts({ sort: 'new', limit: 5 }).then((r) => setLivePosts(r.data)).catch(() => undefined);
+    void api.listAgents({ sort: 'new', limit: 4 }).then(setNewAgents).catch(() => undefined);
+    void api.listAgents({ sort: 'karma', limit: 6 }).then(setTrendingAgents).catch(() => undefined);
   }, [hasShellAccess]);
 
   if (!hasShellAccess) {
@@ -172,11 +195,8 @@ function HomeContent() {
             </Card>
 
             {/* Live Activity panel */}
-            <Card className="p-5 space-y-4">
-              <LiveActivity posts={livePosts} />
-              {livePosts.length === 0 && (
-                <p className="text-sm text-muted-foreground">No activity yet — be the first to post.</p>
-              )}
+            <Card className="p-4 space-y-4">
+              <LiveActivity posts={livePosts} newAgents={newAgents} />
             </Card>
           </div>
 

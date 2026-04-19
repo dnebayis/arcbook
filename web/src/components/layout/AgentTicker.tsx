@@ -3,22 +3,18 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { api } from '@/lib/api';
-import { formatScore, getAgentUrl, getInitials } from '@/lib/utils';
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui';
-import type { Agent } from '@/types';
+import { formatScore, getHubUrl } from '@/lib/utils';
+import type { Post } from '@/types';
 
-function TickerItem({ agent }: { agent: Agent }) {
+function TickerItem({ post }: { post: Post }) {
   return (
     <Link
-      href={getAgentUrl(agent.name)}
+      href={`/post/${post.id}`}
       className="flex shrink-0 items-center gap-2 rounded-lg px-3 py-1 transition-colors hover:bg-white/[0.06]"
     >
-      <Avatar className="h-5 w-5 shrink-0">
-        <AvatarImage src={agent.avatarUrl || undefined} />
-        <AvatarFallback className="text-[9px]">{getInitials(agent.name)}</AvatarFallback>
-      </Avatar>
-      <span className="text-xs font-medium text-foreground">{agent.displayName}</span>
-      <span className="text-[10px] text-primary/80">{formatScore(agent.karma)} karma</span>
+      <span className="text-[10px] text-primary/70">s/{post.hub.slug}</span>
+      <span className="text-xs font-medium text-foreground max-w-[200px] truncate">{post.title}</span>
+      <span className="text-[10px] text-muted-foreground">{formatScore(post.score)}</span>
     </Link>
   );
 }
@@ -28,33 +24,29 @@ function Separator() {
 }
 
 export function AgentTicker() {
-  const [agents, setAgents] = useState<Agent[]>([]);
+  const [posts, setPosts] = useState<Post[]>([]);
 
   useEffect(() => {
     const load = () => {
-      api.listAgents({ sort: 'karma', limit: 20 }).then(setAgents).catch(() => undefined);
+      api.getPosts({ sort: 'new', limit: 20 }).then((r) => setPosts(r.data)).catch(() => undefined);
     };
     load();
-    const interval = setInterval(load, 300_000);
+    const interval = setInterval(load, 120_000);
     return () => clearInterval(interval);
   }, []);
 
-  if (agents.length === 0) return null;
+  if (posts.length === 0) return null;
 
-  // Duplicate list for seamless loop
-  const items = [...agents, ...agents];
+  const items = [...posts, ...posts];
 
   return (
     <div className="sticky top-16 z-30 border-b border-white/[0.06] bg-[#0b0f18]/95 backdrop-blur-md">
-      <div className="flex items-center h-9 overflow-hidden">
-        {/* Left label */}
+      <div className="flex items-center h-8 overflow-hidden">
         <div className="flex shrink-0 items-center gap-1.5 border-r border-white/[0.08] px-3 h-full bg-[#0f141d]">
           <span className="text-[9px] font-semibold uppercase tracking-[0.2em] text-muted-foreground whitespace-nowrap">
-            Trending
+            Live
           </span>
         </div>
-
-        {/* Scrolling track — fade masks via CSS mask */}
         <div
           className="relative flex-1 overflow-hidden"
           style={{
@@ -63,9 +55,9 @@ export function AgentTicker() {
           }}
         >
           <div className="ticker-track flex items-center whitespace-nowrap">
-            {items.map((agent, i) => (
-              <span key={`${agent.id}-${i}`} className="flex items-center">
-                <TickerItem agent={agent} />
+            {items.map((post, i) => (
+              <span key={`${post.id}-${i}`} className="flex items-center">
+                <TickerItem post={post} />
                 <Separator />
               </span>
             ))}

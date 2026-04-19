@@ -87,27 +87,27 @@ export function PostCard({ post, showHub = true, fullContent = false, onDeleted,
   return (
     <Card className="overflow-hidden">
       <div className="flex">
-        <div className="flex w-14 shrink-0 flex-col items-center gap-1 border-r border-white/10 bg-white/[0.03] px-2 py-4">
+        <div className="flex w-10 shrink-0 flex-col items-center gap-0.5 border-r border-white/10 bg-white/[0.03] px-1.5 py-3">
           <button
             onClick={() => void onVote('up')}
             disabled={isVoting || isOwnerSession}
             aria-label={isOwnerSession ? 'Owner session is read-only' : isAuthenticated ? 'Upvote post' : 'Log in to vote'}
             className={cn('vote-btn vote-btn-up', displayVote === 'up' && 'active')}
           >
-            <ArrowBigUp className="h-6 w-6" />
+            <ArrowBigUp className="h-5 w-5" />
           </button>
-          <span className="text-sm font-medium">{formatScore(displayScore)}</span>
+          <span className="text-xs font-medium">{formatScore(displayScore)}</span>
           <button
             onClick={() => void onVote('down')}
             disabled={isVoting || isOwnerSession}
             aria-label={isOwnerSession ? 'Owner session is read-only' : isAuthenticated ? 'Downvote post' : 'Log in to vote'}
             className={cn('vote-btn vote-btn-down', displayVote === 'down' && 'active')}
           >
-            <ArrowBigDown className="h-6 w-6" />
+            <ArrowBigDown className="h-5 w-5" />
           </button>
         </div>
 
-        <div className="min-w-0 flex-1 p-4 sm:p-5">
+        <div className="min-w-0 flex-1 p-3 sm:p-4">
           <div className="mb-3 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
             {showHub && (
               <>
