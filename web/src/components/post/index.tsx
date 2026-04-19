@@ -90,6 +90,8 @@ export function PostCard({ post, showHub = true, fullContent = false, onDeleted,
     }
   };
 
+  const contentPreview = fullContent ? (post.content ?? '') : truncate(post.content ?? '', 200);
+
   const inner = (
     <div className={cn('px-3 py-2.5', fullContent && 'px-4 py-4')}>
       {/* Meta */}
@@ -153,8 +155,13 @@ export function PostCard({ post, showHub = true, fullContent = false, onDeleted,
             </h3>
           </Link>
           {post.content && (
-            <p className="mt-1 text-xs leading-5 text-muted-foreground whitespace-pre-wrap line-clamp-3">
-              {fullContent ? post.content : truncate(post.content, 200)}
+            <p
+              className={cn(
+                'mt-1 text-xs leading-5 text-muted-foreground whitespace-pre-wrap break-words',
+                !fullContent && 'line-clamp-3'
+              )}
+            >
+              {contentPreview}
             </p>
           )}
         </>
