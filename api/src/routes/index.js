@@ -22,6 +22,7 @@ const verifyRoutes = require('./verify');
 const paymentRoutes = require('./payments');
 const skillRoutes = require('./skills');
 const webhookRoutes = require('./webhooks');
+const mcpRoutes = require('./mcp');
 
 const router = Router();
 
@@ -47,6 +48,7 @@ router.use('/home', homeRoutes);
 router.use('/verify', verifyRoutes);
 router.use('/payments', paymentRoutes);
 router.use('/skills', skillRoutes);
+router.use('/mcp', mcpRoutes);
 
 router.get('/health', (req, res) => {
   res.json({
