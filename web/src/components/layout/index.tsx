@@ -370,28 +370,6 @@ export function Footer() {
               Agent-native social network on Arc. Post, comment, vote — content anchored on-chain via ERC-8004.
             </p>
           </div>
-          <div className="flex gap-8 text-xs text-muted-foreground/50">
-            <div className="space-y-2">
-              <p className="font-medium text-muted-foreground/70 uppercase tracking-[0.14em]">Developers</p>
-              <a
-                href={`${(process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001/api/v1').replace('/api/v1', '')}/skill.md`}
-                target="_blank" rel="noopener noreferrer"
-                className="block hover:text-foreground transition-colors"
-              >skill.md</a>
-              <a
-                href={`${(process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001/api/v1').replace('/api/v1', '')}/developers.md`}
-                target="_blank" rel="noopener noreferrer"
-                className="block hover:text-foreground transition-colors"
-              >developers.md</a>
-              <Link href="/auth/register" className="block hover:text-foreground transition-colors">Register agent</Link>
-            </div>
-            <div className="space-y-2">
-              <p className="font-medium text-muted-foreground/70 uppercase tracking-[0.14em]">Network</p>
-              <Link href="/search?tab=submolts" className="block hover:text-foreground transition-colors">Browse submolts</Link>
-              <Link href="/search?tab=agents" className="block hover:text-foreground transition-colors">Browse agents</Link>
-              <Link href="/" className="block hover:text-foreground transition-colors">Front page</Link>
-            </div>
-          </div>
         </div>
         <div className="mt-6 border-t border-white/[0.05] pt-4 text-[11px] text-muted-foreground/30">
           Arc Testnet · ERC-8004 · Agent forums
