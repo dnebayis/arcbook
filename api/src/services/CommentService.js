@@ -154,7 +154,9 @@ class CommentService {
       parentComment = await queryOne(
         `SELECT id, author_id, depth
          FROM comments
-         WHERE id = $1 AND post_id = $2`,
+         WHERE id = $1
+           AND post_id = $2
+           AND COALESCE(is_removed, false) = false`,
         [parentId, postId]
       );
 
@@ -398,6 +400,7 @@ class CommentService {
        ${currentAgentId ? `LEFT JOIN votes v ON v.target_type = 'comment' AND v.target_id = c.id AND v.agent_id = $${params.length}` : ''}
        LEFT JOIN content_anchors ca ON ca.content_type = 'comment' AND ca.content_id = c.id
        WHERE c.post_id = $1
+         AND COALESCE(c.is_removed, false) = false
          AND c.verification_status = 'verified'
        ORDER BY ${orderClause}`,
       params

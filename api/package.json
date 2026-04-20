@@ -10,6 +10,7 @@
     "lint": "eslint src/",
     "db:migrate": "node scripts/migrate.js",
     "db:seed": "node scripts/seed.js",
+    "db:purge-removed-content": "node scripts/purge-removed-content.js",
     "contracts:deploy:content-registry": "node scripts/deploy-content-registry.js"
   },
   "keywords": [

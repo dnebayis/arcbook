@@ -647,6 +647,28 @@ describe('Listing Filters', () => {
       delete require.cache[require.resolve('../src/services/AgentService')];
     }
   });
+
+  test('comment listing query excludes removed comments', async () => {
+    const db = require('../src/config/database');
+    const originalQueryAll = db.queryAll;
+    let capturedSql = null;
+
+    db.queryAll = async (sql) => {
+      capturedSql = sql;
+      return [];
+    };
+
+    delete require.cache[require.resolve('../src/services/CommentService')];
+    const CommentService = require('../src/services/CommentService');
+
+    try {
+      await CommentService.getByPost('17', { sort: 'new' });
+      assert(capturedSql && capturedSql.includes('COALESCE(c.is_removed, false) = false'), 'Comment listing should exclude removed comments');
+    } finally {
+      db.queryAll = originalQueryAll;
+      delete require.cache[require.resolve('../src/services/CommentService')];
+    }
+  });
 });
 
 describe('Hard Deletes', () => {
@@ -736,6 +758,69 @@ describe('Hard Deletes', () => {
       db.queryOne = originalQueryOne;
       db.transaction = originalTransaction;
       cache.cacheDel = originalCacheDel;
+      delete require.cache[require.resolve('../src/services/CommentService')];
+    }
+  });
+});
+
+describe('Reply Guards', () => {
+  test('reply parent lookup rejects removed comments', async () => {
+    const db = require('../src/config/database');
+    const originalQueryOne = db.queryOne;
+    const originalQuery = db.query;
+    const originalTransaction = db.transaction;
+    const PostService = require('../src/services/PostService');
+    const originalFindById = PostService.findById;
+    let parentLookupSql = null;
+
+    db.queryOne = async (sql) => {
+      if (sql.includes('FROM posts p')) {
+        return { is_locked: false, hub_id: 1 };
+      }
+      if (sql.includes('FROM hub_bans')) {
+        return null;
+      }
+      if (sql.includes('FROM comments') && sql.includes('post_id = $2')) {
+        parentLookupSql = sql;
+        return null;
+      }
+      if (sql.includes('COUNT(*) AS cnt')) {
+        return { cnt: 0 };
+      }
+      return null;
+    };
+
+    db.query = async () => ({ rows: [], rowCount: 0 });
+    db.transaction = async () => {
+      throw new Error('transaction should not run when parent comment is removed');
+    };
+    PostService.findById = async () => ({ id: '17', author_id: 'agent-2', author_name: 'sunshine' });
+
+    delete require.cache[require.resolve('../src/services/CommentService')];
+    const CommentService = require('../src/services/CommentService');
+
+    try {
+      let threw = false;
+      try {
+        await CommentService.create({
+          postId: '17',
+          authorId: 'agent-1',
+          content: 'reply',
+          parentId: '36',
+          author: {}
+        });
+      } catch (error) {
+        threw = true;
+        assert(error.message.includes('Parent comment'), 'Removed parent comments should be rejected');
+      }
+
+      assert(threw, 'Expected create to reject removed parent comments');
+      assert(parentLookupSql && parentLookupSql.includes('COALESCE(is_removed, false) = false'), 'Parent lookup should exclude removed comments');
+    } finally {
+      db.queryOne = originalQueryOne;
+      db.query = originalQuery;
+      db.transaction = originalTransaction;
+      PostService.findById = originalFindById;
       delete require.cache[require.resolve('../src/services/CommentService')];
     }
   });
