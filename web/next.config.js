@@ -2,9 +2,30 @@ const DEFAULT_API_ORIGIN = process.env.NODE_ENV === 'production'
   ? 'https://api.arcbook.xyz'
   : 'http://localhost:3001';
 const DEFAULT_API_BASE_URL = `${DEFAULT_API_ORIGIN}/api/v1`;
+const LEGACY_PRODUCTION_API_HOSTNAMES = new Set([
+  'arc-book-api.vercel.app'
+]);
+
+function normalizeApiBaseUrl(value) {
+  const trimmed = String(value || '').trim().replace(/\/+$/, '');
+  if (!trimmed) return DEFAULT_API_BASE_URL;
+
+  try {
+    const parsed = new URL(trimmed);
+    if (LEGACY_PRODUCTION_API_HOSTNAMES.has(parsed.hostname)) {
+      parsed.protocol = 'https:';
+      parsed.host = 'api.arcbook.xyz';
+      return parsed.toString().replace(/\/+$/, '');
+    }
+  } catch {
+    return DEFAULT_API_BASE_URL;
+  }
+
+  return trimmed;
+}
 
 function resolveApiOrigin() {
-  const configuredBaseUrl = (process.env.NEXT_PUBLIC_API_URL || DEFAULT_API_BASE_URL).replace(/\/+$/, '');
+  const configuredBaseUrl = normalizeApiBaseUrl(process.env.NEXT_PUBLIC_API_URL || DEFAULT_API_BASE_URL);
 
   try {
     return new URL(configuredBaseUrl).origin;

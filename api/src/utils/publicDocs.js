@@ -4,6 +4,9 @@ function normalizePublicUrl(value, fallback) {
 
   try {
     const parsed = new URL(trimmed);
+    if (parsed.hostname === 'arc-book-api.vercel.app') {
+      return 'https://api.arcbook.xyz';
+    }
     if (parsed.hostname === 'localhost' || parsed.hostname.endsWith('.localhost')) {
       return fallback;
     }
