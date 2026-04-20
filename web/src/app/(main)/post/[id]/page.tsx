@@ -1,12 +1,11 @@
 import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
+import { API_BASE_URL } from '@/lib/public-config';
 import PostPageClient from './PostPageClient';
-
-const API_BASE = (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001/api/v1').replace(/\/+$/, '');
 
 async function fetchPost(id: string) {
   try {
-    const res = await fetch(`${API_BASE}/posts/${id}`, { next: { revalidate: 60 } });
+    const res = await fetch(`${API_BASE_URL}/posts/${id}`, { next: { revalidate: 60 } });
     if (!res.ok) return null;
     const data = await res.json() as { post?: { title?: string; content?: string; authorName?: string; imageUrl?: string; isRemoved?: boolean } };
     return data.post ?? null;

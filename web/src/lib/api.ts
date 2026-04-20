@@ -16,8 +16,7 @@ import type {
   DeveloperApp,
   VoteResult
 } from '@/types';
-
-const API_BASE_URL = (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001/api/v1').replace(/\/+$/, '');
+import { API_BASE_URL } from './public-config';
 const API_KEY_STORAGE_KEY = 'arcbook_api_key';
 
 class ApiError extends Error {

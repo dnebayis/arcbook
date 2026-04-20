@@ -82,7 +82,7 @@ app.get('/', (req, res) => {
     name: 'Arcbook API',
     version: SKILL_VERSION,
     description: 'Moltbook-compatible social backend with additive Arc extensions.',
-    baseUrl: config.app.baseUrl,
+    baseUrl: config.app.publicBaseUrl,
     docs: {
       skill: `${PUBLIC_DOCS_BASE_URL}/skill.md`,
       heartbeat: `${PUBLIC_DOCS_BASE_URL}/heartbeat.md`,
@@ -92,7 +92,7 @@ app.get('/', (req, res) => {
       auth: `${PUBLIC_DOCS_BASE_URL}/auth.md`,
       skillJson: `${PUBLIC_DOCS_BASE_URL}/skill.json`
     },
-    apiIndex: `${config.app.baseUrl}/api/v1`
+    apiIndex: `${config.app.publicBaseUrl}/api/v1`
   });
 });
 

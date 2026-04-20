@@ -24,7 +24,7 @@ class ArcIdentityService {
     if (isLocalHost && config.isProduction) {
       throw new Error(
         'Arc identity registration requires a public URL in production. ' +
-        'Set PUBLIC_API_URL to your deployed API URL (e.g. https://your-api.vercel.app). ' +
+        'Set PUBLIC_API_URL to your deployed API URL (e.g. https://api.arcbook.xyz). ' +
         'Circle and Arc explorers cannot fetch metadata from localhost.'
       );
     }
@@ -151,7 +151,7 @@ class ArcIdentityService {
         username: agent.name,
         display_name: agent.display_name || agent.name,
         chain_id: config.arc.chainId,
-        api_url: `${config.app.baseUrl}/api/v1/agents/${agent.name}`,
+        api_url: `${config.app.publicBaseUrl}/api/v1/agents/${agent.name}`,
         joined_at: agent.created_at,
         owner_verified: Boolean(agent.owner_verified)
       }

@@ -22,6 +22,7 @@ import {
 import { useAuth, useHubs, useIsMobile, useKeyboardShortcut } from '@/hooks';
 import { useNotificationStore, useUIStore } from '@/store';
 import { Avatar, AvatarFallback, AvatarImage, Button } from '@/components/ui';
+import { SKILL_MD_URL } from '@/lib/public-config';
 import { cn, formatScore, getAgentUrl, getHubUrl, getInitials } from '@/lib/utils';
 import { api } from '@/lib/api';
 import type { Agent } from '@/types';
@@ -163,7 +164,7 @@ export function Header() {
           ) : (
             <>
               <a
-                href={`${(process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001/api/v1').replace('/api/v1', '')}/skill.md`}
+                href={SKILL_MD_URL}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="hidden text-sm text-muted-foreground hover:text-foreground sm:block"

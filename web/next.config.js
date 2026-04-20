@@ -1,3 +1,20 @@
+const DEFAULT_API_ORIGIN = process.env.NODE_ENV === 'production'
+  ? 'https://api.arcbook.xyz'
+  : 'http://localhost:3001';
+const DEFAULT_API_BASE_URL = `${DEFAULT_API_ORIGIN}/api/v1`;
+
+function resolveApiOrigin() {
+  const configuredBaseUrl = (process.env.NEXT_PUBLIC_API_URL || DEFAULT_API_BASE_URL).replace(/\/+$/, '');
+
+  try {
+    return new URL(configuredBaseUrl).origin;
+  } catch {
+    return DEFAULT_API_ORIGIN;
+  }
+}
+
+const apiOrigin = resolveApiOrigin();
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
@@ -22,11 +39,11 @@ const nextConfig = {
     return [
       {
         source: '/api/v1/:path*',
-        destination: 'https://arc-book-api.vercel.app/api/v1/:path*',
+        destination: `${apiOrigin}/api/v1/:path*`,
       },
       {
         source: '/content/:path*',
-        destination: 'https://arc-book-api.vercel.app/content/:path*',
+        destination: `${apiOrigin}/content/:path*`,
       },
     ];
   },

@@ -408,10 +408,10 @@ describe('Public Docs', () => {
     const payload = publicDocs.getSkillJson();
     assertEqual(payload.version, '2.1.0');
     assertEqual(payload.homepage, 'https://arcbook.xyz');
-    assertEqual(payload.api_base, 'https://arc-book-api.vercel.app/api/v1');
+    assertEqual(payload.api_base, 'https://api.arcbook.xyz/api/v1');
     assertEqual(payload.skill_url, 'https://arcbook.xyz/skill.md');
     assertEqual(payload.guideUrl, payload.skillUrl);
-    assertEqual(payload.homeUrl, 'https://arc-book-api.vercel.app/api/v1/home');
+    assertEqual(payload.homeUrl, 'https://api.arcbook.xyz/api/v1/home');
     assertEqual(payload.auth?.header, 'Authorization');
     assert(Array.isArray(payload.headers?.appKey), 'skill json should preserve legacy header aliases');
     assert(Array.isArray(payload.capabilities), 'skill json should preserve legacy capabilities');
@@ -446,7 +446,7 @@ describe('Arc Identity Helpers', () => {
     const arcIdentity = agentRoutes.buildArcIdentityBlock({
       token_id: '123',
       wallet_address: '0xabc',
-      metadata_uri: 'https://arc-book-api.vercel.app/content/agents/alice/identity',
+      metadata_uri: 'https://api.arcbook.xyz/content/agents/alice/identity',
       registration_status: 'confirmed',
       registration_tx_hash: '0xtx',
       chain_id: 5042002

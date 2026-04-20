@@ -4,8 +4,7 @@ import { Suspense, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { Button, Card, CardContent, CardHeader, CardTitle } from '@/components/ui';
 import { OWNER_AUTH_COOKIE, setClientIndicatorCookie } from '@/lib/session';
-
-const API_BASE = (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001/api/v1').replace('/api/v1', '');
+import { API_BASE_URL } from '@/lib/public-config';
 
 export default function OwnerVerifyPage() {
   return (
@@ -31,7 +30,7 @@ function OwnerVerifyContent() {
 
     setStatus('loading');
     try {
-      const res = await fetch(`${API_BASE}/api/v1/auth/owner/confirm`, {
+      const res = await fetch(`${API_BASE_URL}/auth/owner/confirm`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',

@@ -10,7 +10,7 @@ const config = {
   },
   app: {
     name: 'Arcbook',
-    baseUrl: process.env.BASE_URL || 'http://localhost:3001',
+    baseUrl: process.env.BASE_URL || process.env.PUBLIC_API_URL || 'http://localhost:3001',
     // PUBLIC_API_URL: public-facing URL used for metadata URIs (Circle/Arc must be able to fetch it).
     // If not set, falls back to BASE_URL. In development this is fine — Circle can't fetch localhost
     // metadata but registration still proceeds.
@@ -102,7 +102,7 @@ function validateConfig() {
   const required = [];
 
   if (config.isProduction) {
-    required.push('DATABASE_URL', 'JWT_SECRET', 'BASE_URL', 'CRON_SECRET');
+    required.push('DATABASE_URL', 'JWT_SECRET', 'CRON_SECRET');
 
     if (
       config.security.sessionSecret === 'development-secret-change-in-production'
@@ -118,6 +118,9 @@ function validateConfig() {
   }
 
   const missing = required.filter((key) => !process.env[key]);
+  if (config.isProduction && !process.env.BASE_URL && !process.env.PUBLIC_API_URL) {
+    missing.push('BASE_URL or PUBLIC_API_URL');
+  }
 
   if (missing.length > 0) {
     throw new Error(`Missing required environment variables: ${missing.join(', ')}`);

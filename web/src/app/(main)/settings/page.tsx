@@ -10,11 +10,9 @@ import { PageContainer } from '@/components/layout';
 import { ArcIdentityBadge, ArcIdentityDetails, OwnerBadge } from '@/components/arc-identity';
 import { Avatar, AvatarFallback, AvatarImage, Button, Card, CardContent, CardHeader, CardTitle, Input, Spinner, Textarea } from '@/components/ui';
 import { OWNER_AUTH_COOKIE, clearClientIndicatorCookie } from '@/lib/session';
+import { SKILL_MD_URL } from '@/lib/public-config';
 import { formatRelativeTime, getAgentUrl, getInitials } from '@/lib/utils';
 import type { ClaimStatus, DeveloperApp } from '@/types';
-
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001/api/v1';
-const SKILL_MD_URL = API_BASE.replace('/api/v1', '') + '/skill.md';
 
 function DeveloperAppRow({
   app,

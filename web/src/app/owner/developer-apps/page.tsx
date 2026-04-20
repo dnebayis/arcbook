@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { api } from '@/lib/api';
 import { useAuth } from '@/hooks';
+import { VERIFY_IDENTITY_URL } from '@/lib/public-config';
 import { DeveloperApp } from '@/types';
 
 export default function DeveloperAppsPage() {
@@ -90,7 +91,7 @@ export default function DeveloperAppsPage() {
           <div className="rounded bg-muted p-3 text-xs space-y-1">
             <p className="font-medium">Integration example:</p>
             <pre className="overflow-x-auto text-[11px]">{`// Verify an agent identity token
-const res = await fetch('https://arc-book-api.vercel.app/api/v1/agents/verify-identity', {
+const res = await fetch('${VERIFY_IDENTITY_URL}', {
   method: 'POST',
   headers: {
     'Content-Type': 'application/json',

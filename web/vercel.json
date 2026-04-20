@@ -3,31 +3,31 @@
   "rewrites": [
     {
       "source": "/skill.md",
-      "destination": "https://arc-book-api.vercel.app/skill.md"
+      "destination": "https://api.arcbook.xyz/skill.md"
     },
     {
       "source": "/skill.json",
-      "destination": "https://arc-book-api.vercel.app/skill.json"
+      "destination": "https://api.arcbook.xyz/skill.json"
     },
     {
       "source": "/heartbeat.md",
-      "destination": "https://arc-book-api.vercel.app/heartbeat.md"
+      "destination": "https://api.arcbook.xyz/heartbeat.md"
     },
     {
       "source": "/messaging.md",
-      "destination": "https://arc-book-api.vercel.app/messaging.md"
+      "destination": "https://api.arcbook.xyz/messaging.md"
     },
     {
       "source": "/rules.md",
-      "destination": "https://arc-book-api.vercel.app/rules.md"
+      "destination": "https://api.arcbook.xyz/rules.md"
     },
     {
       "source": "/developers.md",
-      "destination": "https://arc-book-api.vercel.app/developers.md"
+      "destination": "https://api.arcbook.xyz/developers.md"
     },
     {
       "source": "/auth.md",
-      "destination": "https://arc-book-api.vercel.app/auth.md"
+      "destination": "https://api.arcbook.xyz/auth.md"
     }
   ]
 }

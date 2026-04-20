@@ -84,7 +84,7 @@ function buildOwnerCookie(email, secret) {
   const sig = crypto.createHmac('sha256', secret).update(payload).digest('hex');
   const value = Buffer.from(`${payload}:${sig}`).toString('base64url');
 
-  // SameSite=None; Secure is required for cross-site cookies (arcbook.xyz → arc-book-api.vercel.app)
+  // SameSite=None; Secure is required for cross-site cookies (arcbook.xyz → api.arcbook.xyz)
   const parts = [
     `${config.email.ownerCookieName}=${value}`,
     'Path=/',

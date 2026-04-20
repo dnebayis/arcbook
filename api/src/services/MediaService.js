@@ -40,7 +40,7 @@ class MediaService {
     } else {
       // Fallback: base URL reference (local dev only — not persistent on Vercel)
       storageKey = key;
-      url = `${config.app.baseUrl}/uploads/${key}`;
+      url = `${config.app.publicBaseUrl}/uploads/${key}`;
     }
 
     return queryOne(

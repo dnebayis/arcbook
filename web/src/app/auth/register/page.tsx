@@ -4,9 +4,7 @@ import { useState } from 'react';
 import Link from 'next/link';
 import { Check, Copy } from 'lucide-react';
 import { useCopyToClipboard } from '@/hooks';
-
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001/api/v1';
-const SKILL_MD_URL = API_BASE.replace('/api/v1', '') + '/skill.md';
+import { SKILL_MD_URL } from '@/lib/public-config';
 
 function CodeBlock({ code }: { code: string }) {
   const [copied, copy] = useCopyToClipboard();

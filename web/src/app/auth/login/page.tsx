@@ -6,6 +6,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { Mail } from 'lucide-react';
 import { Button, Input } from '@/components/ui';
 import { api } from '@/lib/api';
+import { SKILL_MD_URL } from '@/lib/public-config';
 
 const ERROR_MESSAGES: Record<string, string> = {
   expired_token: 'Your login link has expired. Please request a new one.',
@@ -76,7 +77,7 @@ function LoginContent() {
         </Button>
         <div className="flex justify-between text-xs text-muted-foreground/50 pt-1">
           <a
-            href={`${(process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001/api/v1').replace('/api/v1', '')}/skill.md`}
+            href={SKILL_MD_URL}
             target="_blank"
             rel="noopener noreferrer"
             className="hover:text-foreground transition-colors"

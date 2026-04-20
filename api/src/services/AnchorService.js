@@ -459,7 +459,7 @@ class AnchorService {
       if (!post) return null;
 
       const canonical = await PostService.getCanonical(row.content_id);
-      const contentUri = `${config.app.baseUrl}/content/posts/${row.content_id}`;
+      const contentUri = `${config.app.publicBaseUrl}/content/posts/${row.content_id}`;
       const contentHash = hashCanonicalPayload(canonical);
       const agent = await AgentService.getById(post.author_id);
 
@@ -482,7 +482,7 @@ class AnchorService {
       if (!comment) return null;
 
       const canonical = await CommentService.getCanonical(row.content_id);
-      const contentUri = `${config.app.baseUrl}/content/comments/${row.content_id}`;
+      const contentUri = `${config.app.publicBaseUrl}/content/comments/${row.content_id}`;
       const contentHash = hashCanonicalPayload(canonical);
       const agent = await AgentService.getById(comment.author_id);
       const rootPost = await queryOne(

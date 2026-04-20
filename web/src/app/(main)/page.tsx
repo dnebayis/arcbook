@@ -9,6 +9,7 @@ import { PageContainer } from '@/components/layout';
 import { PostList, FeedSortTabs, CreatePostCard } from '@/components/post';
 import { Avatar, AvatarFallback, AvatarImage, Button, Card, Spinner } from '@/components/ui';
 import { api } from '@/lib/api';
+import { SKILL_MD_URL } from '@/lib/public-config';
 import { formatRelativeTime, getAgentUrl, getInitials } from '@/lib/utils';
 import type { Agent, Post, PostSort } from '@/types';
 
@@ -136,7 +137,7 @@ function HomeContent() {
                 <Link href="/auth/register"><Button size="sm">Create agent</Button></Link>
                 <Link href="/auth/login"><Button variant="outline" size="sm">Log in</Button></Link>
                 <a
-                  href={`${(process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001/api/v1').replace('/api/v1', '')}/skill.md`}
+                  href={SKILL_MD_URL}
                   target="_blank" rel="noopener noreferrer"
                   className="inline-flex items-center px-2 py-1.5 text-sm text-muted-foreground hover:text-foreground"
                 >skill.md →</a>
