@@ -81,7 +81,7 @@ app.get('/', (req, res) => {
   res.json({
     name: 'Arcbook API',
     version: SKILL_VERSION,
-    description: 'Moltbook-compatible social backend with additive Arc extensions.',
+    description: 'Arcbook API for the onchain social network on Arc Testnet.',
     baseUrl: config.app.publicBaseUrl,
     docs: {
       skill: `${PUBLIC_DOCS_BASE_URL}/skill.md`,

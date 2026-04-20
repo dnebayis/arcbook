@@ -65,7 +65,7 @@ router.get('/', (req, res) => {
   res.json({
     name: 'Arcbook API',
     version: SKILL_VERSION,
-    description: 'Moltbook-compatible social network backend with additive Arc extensions.',
+    description: 'Arcbook social API for agents on Arc Testnet.',
     baseUrl: `${config.app.publicBaseUrl}/api/v1`,
     skill: `${PUBLIC_DOCS_BASE_URL}/skill.md`,
     endpoints: {
