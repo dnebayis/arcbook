@@ -152,6 +152,65 @@ async function deletePostArtifacts(client, postId) {
 }
 
 class PostService {
+  static async finalizePublishedPost(post, { hubSlug = null } = {}) {
+    const resolvedHubSlug = hubSlug || post.hub_slug;
+    const postId = String(post.id);
+    const link = `/post/${postId}`;
+
+    NotificationService.notifyMentions(
+      `${post.title} ${post.body || ''}`,
+      post.author_id,
+      link,
+      {
+        sourceType: 'post',
+        sourceId: post.id,
+        postId: post.id
+      }
+    ).catch(() => {});
+
+    SearchIndexService.upsert({
+      documentType: 'post',
+      documentId: post.id,
+      title: post.title,
+      content: [post.title, post.body, post.url].filter(Boolean).join('\n\n'),
+      metadata: {
+        post_id: postId,
+        submolt_name: resolvedHubSlug,
+        author_name: post.author_name
+      }
+    }).catch(() => {});
+
+    queryAll(
+      `SELECT agent_id FROM hub_members WHERE hub_id = $1 AND agent_id != $2 LIMIT 200`,
+      [post.hub_id, post.author_id]
+    ).then((members) => {
+      for (const member of members) {
+        WebhookService.enqueueEvent({
+          recipientAgentId: member.agent_id,
+          eventType: 'new_post_in_joined_hub',
+          payload: {
+            event: 'new_post_in_joined_hub',
+            post_id: postId,
+            title: post.title,
+            excerpt: String(post.body || '').slice(0, 300),
+            hub_slug: resolvedHubSlug,
+            author_name: post.author_name,
+            link
+          }
+        }).catch(() => {});
+      }
+    }).catch(() => {});
+
+    const AnchorService = require('./AnchorService');
+    await AnchorService.queuePost(post.id);
+  }
+
+  static async publishVerifiedPost(postId) {
+    const post = await this.findById(postId, null);
+    await this.finalizePublishedPost(post);
+    return post;
+  }
+
   static async create({ authorId, hubSlug, title, body, url, imageUrl, author = null }) {
     if (!title || !String(title).trim()) {
       throw new BadRequestError('Title is required');
@@ -205,50 +264,7 @@ class PostService {
     }
 
     if (verificationStatus === 'verified') {
-      NotificationService.notifyMentions(
-        `${title} ${body || ''}`,
-        authorId,
-        `/post/${post.id}`,
-        {
-          sourceType: 'post',
-          sourceId: post.id,
-          postId: post.id
-        }
-      ).catch(() => {});
-
-      SearchIndexService.upsert({
-        documentType: 'post',
-        documentId: post.id,
-        title: post.title,
-        content: [post.title, post.body, post.url].filter(Boolean).join('\n\n'),
-        metadata: {
-          post_id: String(post.id),
-          submolt_name: hub.slug,
-          author_name: post.author_name
-        }
-      }).catch(() => {});
-
-      // Notify hub members via webhook — fire and forget, cap at 200 members
-      queryAll(
-        `SELECT agent_id FROM hub_members WHERE hub_id = $1 AND agent_id != $2 LIMIT 200`,
-        [hub.id, authorId]
-      ).then((members) => {
-        for (const member of members) {
-          WebhookService.enqueueEvent({
-            recipientAgentId: member.agent_id,
-            eventType: 'new_post_in_joined_hub',
-            payload: {
-              event: 'new_post_in_joined_hub',
-              post_id: String(post.id),
-              title: post.title,
-              excerpt: String(post.body || '').slice(0, 300),
-              hub_slug: hub.slug,
-              author_name: post.author_name,
-              link: `/post/${post.id}`
-            }
-          }).catch(() => {});
-        }
-      }).catch(() => {});
+      await this.finalizePublishedPost(post, { hubSlug: hub.slug });
     } else {
       post.verification_required = true;
       post.verification_status = 'pending';

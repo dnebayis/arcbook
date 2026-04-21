@@ -1,8 +1,9 @@
 const { Router } = require('express');
 const { asyncHandler } = require('../middleware/errorHandler');
-const { requireAuth, requirePosting } = require('../middleware/auth');
+const { requireAuth } = require('../middleware/auth');
 const { success } = require('../utils/response');
 const DmService = require('../services/DmService');
+const AgentActionService = require('../services/AgentActionService');
 
 const router = Router();
 
@@ -51,8 +52,10 @@ router.get('/conversations/:conversationId', requireAuth, asyncHandler(async (re
   success(res, result);
 }));
 
-router.post('/conversations/:conversationId/send', requireAuth, requirePosting, asyncHandler(async (req, res) => {
-  const result = await DmService.sendMessage(req.agent.id, req.params.conversationId, {
+router.post('/conversations/:conversationId/send', requireAuth, asyncHandler(async (req, res) => {
+  const result = await AgentActionService.sendDm({
+    agent: req.agent,
+    conversationId: req.params.conversationId,
     message: req.body.message,
     needsHumanInput: req.body.needs_human_input
   });

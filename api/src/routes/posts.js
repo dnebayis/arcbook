@@ -1,14 +1,13 @@
 const { Router } = require('express');
 const { asyncHandler } = require('../middleware/errorHandler');
-const { requireAuth, optionalAuth, requirePosting } = require('../middleware/auth');
-const { postLimiter, commentLimiter } = require('../middleware/rateLimit');
+const { requireAuth, optionalAuth } = require('../middleware/auth');
+const { setHeaders } = require('../middleware/rateLimit');
 const { created, paginated, cursorPaginated, success, noContent } = require('../utils/response');
 const { serializePost, serializeComment } = require('../utils/serializers');
 const { BadRequestError, UnauthorizedError, ForbiddenError, NotFoundError } = require('../utils/errors');
 const PostService = require('../services/PostService');
 const CommentService = require('../services/CommentService');
-const VoteService = require('../services/VoteService');
-const AnchorService = require('../services/AnchorService');
+const AgentActionService = require('../services/AgentActionService');
 const { queryOne } = require('../config/database');
 
 const router = Router();
@@ -50,20 +49,20 @@ router.get('/', optionalAuth, asyncHandler(async (req, res) => {
   cursorPaginated(res, posts.map(serializePost), { limit, nextCursor });
 }));
 
-router.post('/', requireAuth, requirePosting, postLimiter, asyncHandler(async (req, res) => {
-  const post = await PostService.create({
-    authorId: req.agent.id,
+router.post('/', requireAuth, asyncHandler(async (req, res) => {
+  const { post, rateLimit } = await AgentActionService.createPost({
+    agent: req.agent,
+    token: req.token,
+    ip: req.ip,
     hubSlug: req.body.submolt_name || req.body.submolt || req.body.hubSlug || req.body.hub,
     title: req.body.title,
     body: req.body.content || req.body.body,
     url: req.body.url,
     imageUrl: req.body.imageUrl || null,
-    author: req.agent
+    returnRateLimit: true
   });
+  setHeaders(res, rateLimit);
 
-  if (!post.verification_required) {
-    await AnchorService.queuePost(post.id);
-  }
   created(res, {
     message: post.verification_required ? 'Post created! Complete verification to publish.' : undefined,
     post: serializePost(post),
@@ -108,18 +107,18 @@ router.delete('/:id', requireAuth, asyncHandler(async (req, res) => {
   noContent(res);
 }));
 
-router.post('/:id/comments', requireAuth, requirePosting, commentLimiter, asyncHandler(async (req, res) => {
-  const comment = await CommentService.create({
+router.post('/:id/comments', requireAuth, asyncHandler(async (req, res) => {
+  const { comment, rateLimit } = await AgentActionService.createComment({
+    agent: req.agent,
+    token: req.token,
+    ip: req.ip,
     postId: req.params.id,
-    authorId: req.agent.id,
     content: req.body.content || req.body.body,
     parentId: req.body.parentId || req.body.parent_id || null,
-    author: req.agent
+    returnRateLimit: true
   });
+  setHeaders(res, rateLimit);
 
-  if (!comment.verification_required) {
-    await AnchorService.queueComment(comment.id);
-  }
   created(res, {
     message: comment.verification_required ? 'Comment created! Complete verification to publish.' : undefined,
     comment: serializeComment(comment),
@@ -149,18 +148,18 @@ router.post('/:id/vote', requireAuth, asyncHandler(async (req, res) => {
     throw new BadRequestError('Vote value must be 1 or -1');
   }
   const result = value === -1
-    ? await VoteService.downvotePost(req.params.id, req.agent.id)
-    : await VoteService.upvotePost(req.params.id, req.agent.id);
+    ? await AgentActionService.downvotePost({ agent: req.agent, postId: req.params.id })
+    : await AgentActionService.upvotePost({ agent: req.agent, postId: req.params.id });
   success(res, result);
 }));
 
 router.post('/:id/upvote', requireAuth, asyncHandler(async (req, res) => {
-  const result = await VoteService.upvotePost(req.params.id, req.agent.id);
+  const result = await AgentActionService.upvotePost({ agent: req.agent, postId: req.params.id });
   success(res, result);
 }));
 
 router.post('/:id/downvote', requireAuth, asyncHandler(async (req, res) => {
-  const result = await VoteService.downvotePost(req.params.id, req.agent.id);
+  const result = await AgentActionService.downvotePost({ agent: req.agent, postId: req.params.id });
   success(res, result);
 }));
 
@@ -170,18 +169,18 @@ router.post('/:id/comments/:commentId/vote', requireAuth, asyncHandler(async (re
   const value = Number(req.body.value);
   if (value !== 1 && value !== -1) throw new BadRequestError('Vote value must be 1 or -1');
   const result = value === -1
-    ? await VoteService.downvoteComment(req.params.commentId, req.agent.id)
-    : await VoteService.upvoteComment(req.params.commentId, req.agent.id);
+    ? await AgentActionService.downvoteComment({ agent: req.agent, commentId: req.params.commentId })
+    : await AgentActionService.upvoteComment({ agent: req.agent, commentId: req.params.commentId });
   success(res, result);
 }));
 
 router.post('/:id/comments/:commentId/upvote', requireAuth, asyncHandler(async (req, res) => {
-  const result = await VoteService.upvoteComment(req.params.commentId, req.agent.id);
+  const result = await AgentActionService.upvoteComment({ agent: req.agent, commentId: req.params.commentId });
   success(res, result);
 }));
 
 router.post('/:id/comments/:commentId/downvote', requireAuth, asyncHandler(async (req, res) => {
-  const result = await VoteService.downvoteComment(req.params.commentId, req.agent.id);
+  const result = await AgentActionService.downvoteComment({ agent: req.agent, commentId: req.params.commentId });
   success(res, result);
 }));
 

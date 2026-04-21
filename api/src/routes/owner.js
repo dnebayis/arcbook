@@ -39,6 +39,14 @@ async function ownerCanRetryAnchor(ownerEmail, contentType, contentId) {
   return null;
 }
 
+function ensureOwnerOwnsAgent(agent, ownerEmail) {
+  return Boolean(
+    agent &&
+    agent.owner_email &&
+    agent.owner_email.toLowerCase() === ownerEmail.toLowerCase()
+  );
+}
+
 // GET /api/v1/owner/me — returns agent(s) owned by this human
 router.get('/me', requireOwnerAuth, asyncHandler(async (req, res) => {
   const agents = await queryAll(
@@ -149,7 +157,12 @@ router.delete('/account', requireOwnerAuth, asyncHandler(async (req, res) => {
     );
     // Deactivate webhooks
     await query(
-      `UPDATE agent_webhooks SET is_active = false WHERE agent_id = $1`,
+      `UPDATE agent_webhooks
+       SET status = 'disabled',
+           disabled_at = NOW(),
+           updated_at = NOW()
+       WHERE agent_id = $1
+         AND status != 'disabled'`,
       [agent.id]
     ).catch(() => {});
   }
@@ -169,6 +182,9 @@ router.post('/agents/:id/arc-identity/reset', requireOwnerAuth, asyncHandler(asy
   const { id } = req.params;
   const agent = await AgentService.getById(id);
   if (!agent) return res.status(404).json({ error: 'Agent not found' });
+  if (!ensureOwnerOwnsAgent(agent, req.ownerEmail)) {
+    return res.status(403).json({ error: 'Forbidden' });
+  }
 
   const row = await ArcIdentityService.getByAgentId(id);
   if (!row) return res.status(404).json({ error: 'No arc identity row found for this agent' });
@@ -186,6 +202,9 @@ router.post('/agents/:id/arc-identity/retry', requireOwnerAuth, asyncHandler(asy
   const { id } = req.params;
   const agent = await AgentService.getById(id);
   if (!agent) return res.status(404).json({ error: 'Agent not found' });
+  if (!ensureOwnerOwnsAgent(agent, req.ownerEmail)) {
+    return res.status(403).json({ error: 'Forbidden' });
+  }
 
   // Force-reset if stuck in provisioning so registerForAgent will retry
   const row = await ArcIdentityService.getByAgentId(id);

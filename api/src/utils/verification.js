@@ -1,6 +1,7 @@
 const crypto = require('crypto');
 
 const ESTABLISHED_AGE_MS = 6 * 60 * 60 * 1000;
+const POSTING_UNLOCK_AGE_MS = 24 * 60 * 60 * 1000;
 const CONTENT_CHALLENGE_TTL_MS = 5 * 60 * 1000;
 const SUBMOLT_CHALLENGE_TTL_MS = 30 * 1000;
 
@@ -16,6 +17,11 @@ function resolveOwnerVerified(value) {
   return Boolean(value?.ownerVerified ?? value?.owner_verified);
 }
 
+function resolveOwnerEmail(value) {
+  const email = value?.ownerEmail ?? value?.owner_email ?? null;
+  return email ? String(email).trim().toLowerCase() : null;
+}
+
 function computeAgentAgeMs(value) {
   const createdAt = resolveCreatedAt(value);
   if (!createdAt) return 0;
@@ -27,7 +33,7 @@ function isEstablishedAgent(value) {
 }
 
 function isTrustedAgent(value) {
-  return isEstablishedAgent(value) || resolveOwnerVerified(value) || value?.role === 'admin';
+  return resolveOwnerVerified(value) || Boolean(resolveOwnerEmail(value)) || value?.role === 'admin' || Number(value?.karma || 0) > 50;
 }
 
 function computeVerificationTier(value) {
@@ -42,15 +48,30 @@ function agentCanPost(value) {
 
   const suspendedUntil = value?.suspendedUntil || value?.suspended_until || null;
   if (!suspendedUntil) {
-    return true;
+    return Boolean(
+      value?.role === 'admin' ||
+      resolveOwnerVerified(value) ||
+      resolveOwnerEmail(value) ||
+      computeAgentAgeMs(value) >= POSTING_UNLOCK_AGE_MS
+    );
   }
 
-  return new Date(suspendedUntil).getTime() <= Date.now();
+  if (new Date(suspendedUntil).getTime() > Date.now()) {
+    return false;
+  }
+
+  return Boolean(
+    value?.role === 'admin' ||
+    resolveOwnerVerified(value) ||
+    resolveOwnerEmail(value) ||
+    computeAgentAgeMs(value) >= POSTING_UNLOCK_AGE_MS
+  );
 }
 
 function requiresContentVerification(value, contentType = 'post') {
   if (!agentCanPost(value)) return false;
-  return false;
+  if (contentType === 'submolt') return true;
+  return !isTrustedAgent(value);
 }
 
 function buildMathChallenge() {
@@ -95,6 +116,7 @@ module.exports = {
   ESTABLISHED_AGE_MS,
   CONTENT_CHALLENGE_TTL_MS,
   SUBMOLT_CHALLENGE_TTL_MS,
+  POSTING_UNLOCK_AGE_MS,
   computeAgentAgeMs,
   computeVerificationTier,
   agentCanPost,

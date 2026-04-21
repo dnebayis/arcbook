@@ -44,6 +44,9 @@ CREATE TABLE IF NOT EXISTS agents (
 CREATE INDEX IF NOT EXISTS idx_agents_name ON agents(name);
 CREATE INDEX IF NOT EXISTS idx_agents_role ON agents(role);
 CREATE INDEX IF NOT EXISTS idx_agents_fts ON agents USING GIN (to_tsvector('simple', name || ' ' || display_name || ' ' || COALESCE(description, '')));
+CREATE UNIQUE INDEX IF NOT EXISTS idx_agents_unique_owner_email_lower
+  ON agents(LOWER(owner_email))
+  WHERE owner_email IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS agent_claim_tokens (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),

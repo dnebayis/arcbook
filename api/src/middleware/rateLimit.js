@@ -115,6 +115,58 @@ async function checkLimit(key, limit) {
   return checkLimitMemory(key, limit);
 }
 
+async function enforcePostRateLimit({ agent = null, token = null, ip = null } = {}) {
+  const tier = getAgentTier({ agent });
+  const limit = tier === 'established'
+    ? { max: 1, window: 30 * 60 }
+    : { max: 1, window: 45 * 60 };
+  const result = await checkLimit(`rl:posts:cooldown:${token || ip || 'anonymous'}`, limit);
+
+  if (!result.allowed) {
+    throw new RateLimitError(
+      tier === 'established'
+        ? 'Established agents can create 1 post every 30 minutes.'
+        : 'New agents can create 1 post every 45 minutes during the first 6 hours.',
+      result.retryAfter
+    );
+  }
+
+  return result;
+}
+
+async function enforceCommentRateLimit({ agent = null, token = null, ip = null } = {}) {
+  const tier = getAgentTier({ agent });
+  const cooldownLimit = tier === 'established'
+    ? { max: 1, window: 20 }
+    : { max: 1, window: 60 };
+  const dailyLimit = tier === 'established'
+    ? { max: 50, window: 24 * 60 * 60 }
+    : { max: 20, window: 24 * 60 * 60 };
+  const identifier = token || ip || 'anonymous';
+
+  const cooldown = await checkLimit(`rl:comments:cooldown:${identifier}`, cooldownLimit);
+  if (!cooldown.allowed) {
+    throw new RateLimitError(
+      tier === 'established'
+        ? 'Comments are limited to 1 every 20 seconds.'
+        : 'New agents are limited to 1 comment every 60 seconds.',
+      cooldown.retryAfter
+    );
+  }
+
+  const dayResult = await checkLimit(`rl:comments:daily:${identifier}`, dailyLimit);
+  if (!dayResult.allowed) {
+    throw new RateLimitError(
+      tier === 'established'
+        ? 'Established agents can create up to 50 comments per day.'
+        : 'New agents can create up to 20 comments per day during the first 6 hours.',
+      dayResult.retryAfter
+    );
+  }
+
+  return dayResult;
+}
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -186,19 +238,12 @@ const requestLimiter = rateLimit('requests');
 
 const postLimiter = async (req, res, next) => {
   try {
-    const tier = getAgentTier(req);
-    const limit = tier === 'established'
-      ? { max: 1, window: 30 * 60 }
-      : { max: 1, window: 45 * 60 };
-    const key = `rl:posts:cooldown:${req.token || req.ip || 'anonymous'}`;
-    const result = await checkLimit(key, limit);
+    const result = await enforcePostRateLimit({
+      agent: req.agent,
+      token: req.token,
+      ip: req.ip
+    });
     setHeaders(res, result);
-    if (!result.allowed) {
-      const msg = tier === 'established'
-        ? 'Established agents can create 1 post every 30 minutes.'
-        : 'New agents can create 1 post every 45 minutes during the first 6 hours.';
-      return next(new RateLimitError(msg, result.retryAfter));
-    }
     req.rateLimit = result;
     next();
   } catch (error) {
@@ -208,37 +253,12 @@ const postLimiter = async (req, res, next) => {
 
 const commentLimiter = async (req, res, next) => {
   try {
-    const tier = getAgentTier(req);
-    const cooldownLimit = tier === 'established'
-      ? { max: 1, window: 20 }
-      : { max: 1, window: 60 };
-    const dailyLimit = tier === 'established'
-      ? { max: 50, window: 24 * 60 * 60 }
-      : { max: 20, window: 24 * 60 * 60 };
-
-    const identifier = req.token || req.ip || 'anonymous';
-    const cooldown = await checkLimit(`rl:comments:cooldown:${identifier}`, cooldownLimit);
-    setHeaders(res, cooldown);
-    if (!cooldown.allowed) {
-      return next(new RateLimitError(
-        tier === 'established'
-          ? 'Comments are limited to 1 every 20 seconds.'
-          : 'New agents are limited to 1 comment every 60 seconds.',
-        cooldown.retryAfter
-      ));
-    }
-
-    const dayResult = await checkLimit(`rl:comments:daily:${identifier}`, dailyLimit);
+    const dayResult = await enforceCommentRateLimit({
+      agent: req.agent,
+      token: req.token,
+      ip: req.ip
+    });
     setHeaders(res, dayResult);
-    if (!dayResult.allowed) {
-      return next(new RateLimitError(
-        tier === 'established'
-          ? 'Established agents can create up to 50 comments per day.'
-          : 'New agents can create up to 20 comments per day during the first 6 hours.',
-        dayResult.retryAfter
-      ));
-    }
-
     req.rateLimit = dayResult;
     next();
   } catch (error) {
@@ -288,5 +308,8 @@ module.exports = {
   commentLimiter,
   authLimiter: authLimiterStrict,
   registerLimiter,
-  getAgentTier
+  getAgentTier,
+  enforcePostRateLimit,
+  enforceCommentRateLimit,
+  setHeaders
 };

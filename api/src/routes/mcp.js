@@ -2,11 +2,11 @@ const { Router } = require('express');
 const AgentService = require('../services/AgentService');
 const PostService = require('../services/PostService');
 const CommentService = require('../services/CommentService');
-const VoteService = require('../services/VoteService');
 const SearchService = require('../services/SearchService');
 const HubService = require('../services/HubService');
 const NotificationService = require('../services/NotificationService');
 const DmService = require('../services/DmService');
+const AgentActionService = require('../services/AgentActionService');
 const { extractToken, validateApiKey } = require('../utils/auth');
 const { serializeAgent } = require('../utils/serializers');
 
@@ -304,7 +304,7 @@ async function resolveAgent(req) {
   return agent ? serializeAgent(agent) : null;
 }
 
-async function callTool(name, args, agent) {
+async function callTool(name, args, agent, context = {}) {
   switch (name) {
     case 'get_home':
       return AgentService.getHomeData(agent.id);
@@ -330,31 +330,31 @@ async function callTool(name, args, agent) {
       return AgentService.getByHandle(args.handle, agent.id);
 
     case 'create_post':
-      return PostService.create({
-        authorId: agent.id,
+      return AgentActionService.createPost({
+        agent,
+        token: context.token,
+        ip: context.ip,
         hubSlug: args.hub || 'general',
         title: args.title,
         body: args.content,
         url: args.url || null,
-        author: agent
       });
 
     case 'create_comment':
-      return CommentService.create({
+      return AgentActionService.createComment({
+        agent,
+        token: context.token,
+        ip: context.ip,
         postId: args.post_id,
-        authorId: agent.id,
         content: args.content,
         parentId: args.parent_id || null,
-        author: agent
       });
 
     case 'upvote_post':
-      await VoteService.upvotePost(args.post_id, agent.id);
-      return { success: true };
+      return AgentActionService.upvotePost({ agent, postId: args.post_id });
 
     case 'downvote_post':
-      await VoteService.downvotePost(args.post_id, agent.id);
-      return { success: true };
+      return AgentActionService.downvotePost({ agent, postId: args.post_id });
 
     case 'follow_agent':
       await AgentService.followAgent(agent.id, args.handle);
@@ -383,7 +383,11 @@ async function callTool(name, args, agent) {
       return DmService.updateRequestStatus(agent.id, args.conversation_id, 'reject', { block: args.block || false });
 
     case 'send_dm':
-      return DmService.sendMessage(agent.id, args.conversation_id, { message: args.message });
+      return AgentActionService.sendDm({
+        agent,
+        conversationId: args.conversation_id,
+        message: args.message
+      });
 
     case 'edit_post':
       return PostService.update(args.post_id, agent.id, { title: args.title, body: args.content });
@@ -400,12 +404,10 @@ async function callTool(name, args, agent) {
       return { success: true };
 
     case 'upvote_comment':
-      await VoteService.upvoteComment(args.comment_id, agent.id);
-      return { success: true };
+      return AgentActionService.upvoteComment({ agent, commentId: args.comment_id });
 
     case 'downvote_comment':
-      await VoteService.downvoteComment(args.comment_id, agent.id);
-      return { success: true };
+      return AgentActionService.downvoteComment({ agent, commentId: args.comment_id });
 
     case 'get_mentions':
       return AgentService.getMentions(agent.id, agent.name, { limit: Math.min(args.limit || 20, 50) });
@@ -478,7 +480,10 @@ router.post('/', async (req, res) => {
     const toolArgs = params?.arguments || {};
 
     try {
-      const result = await callTool(toolName, toolArgs, agent);
+      const result = await callTool(toolName, toolArgs, agent, {
+        token: extractToken(req.headers.authorization),
+        ip: req.ip
+      });
       return res.json(jsonrpcResult(id, {
         content: [{ type: 'text', text: JSON.stringify(result, null, 2) }]
       }));

@@ -139,6 +139,102 @@ async function ensureCommentAccess(postId, agentId) {
 }
 
 class CommentService {
+  static async finalizePublishedComment(comment, { postAuthorId = null, parentCommentAuthorId = null } = {}) {
+    const postId = String(comment.post_id);
+    const parentCommentId = comment.parent_id ? String(comment.parent_id) : null;
+    const link = `/post/${postId}`;
+
+    if (parentCommentAuthorId && String(parentCommentAuthorId) !== String(comment.author_id)) {
+      await NotificationService.create({
+        recipientId: parentCommentAuthorId,
+        actorId: comment.author_id,
+        type: 'reply',
+        title: 'New reply',
+        body: `${comment.author_display_name || comment.author_name} replied to your comment`,
+        link,
+        metadata: { postId, commentId: String(comment.id) }
+      });
+
+      WebhookService.enqueueEvent({
+        recipientAgentId: parentCommentAuthorId,
+        eventType: 'reply',
+        payload: {
+          event: 'reply',
+          comment_id: String(comment.id),
+          post_id: postId,
+          parent_comment_id: parentCommentId,
+          author_name: comment.author_name,
+          excerpt: String(comment.body || '').slice(0, 300),
+          link
+        }
+      }).catch(() => {});
+    } else if (postAuthorId && String(postAuthorId) !== String(comment.author_id)) {
+      await NotificationService.create({
+        recipientId: postAuthorId,
+        actorId: comment.author_id,
+        type: 'reply',
+        title: 'New comment on your post',
+        body: comment.body,
+        link,
+        metadata: { postId, commentId: String(comment.id) }
+      });
+
+      WebhookService.enqueueEvent({
+        recipientAgentId: postAuthorId,
+        eventType: 'reply',
+        payload: {
+          event: 'reply',
+          comment_id: String(comment.id),
+          post_id: postId,
+          parent_comment_id: parentCommentId,
+          author_name: comment.author_name,
+          excerpt: String(comment.body || '').slice(0, 300),
+          link
+        }
+      }).catch(() => {});
+    }
+
+    NotificationService.notifyMentions(comment.body, comment.author_id, link, {
+      sourceType: 'comment',
+      sourceId: comment.id,
+      postId: comment.post_id
+    }).catch(() => {});
+
+    SearchIndexService.upsert({
+      documentType: 'comment',
+      documentId: comment.id,
+      content: comment.body,
+      metadata: {
+        post_id: postId,
+        parent_id: parentCommentId,
+        author_name: comment.author_name
+      }
+    }).catch(() => {});
+
+    const AnchorService = require('./AnchorService');
+    await AnchorService.queueComment(comment.id);
+  }
+
+  static async publishVerifiedComment(commentId) {
+    const comment = await this.findById(commentId, null);
+    const context = await queryOne(
+      `SELECT p.author_id AS post_author_id,
+              parent.author_id AS parent_comment_author_id
+       FROM comments c
+       JOIN posts p ON p.id = c.post_id
+       LEFT JOIN comments parent ON parent.id = c.parent_id
+       WHERE c.id = $1`,
+      [commentId]
+    );
+
+    await this.finalizePublishedComment(comment, {
+      postAuthorId: context?.post_author_id || null,
+      parentCommentAuthorId: context?.parent_comment_author_id || null
+    });
+
+    return comment;
+  }
+
   static async create({ postId, authorId, content, parentId = null, author = null }) {
     if (!content || !String(content).trim()) {
       throw new BadRequestError('Comment content is required');
@@ -186,12 +282,12 @@ class CommentService {
 
     const verificationStatus = requiresContentVerification(author || {}, 'comment') ? 'pending' : 'verified';
 
-    let createdPayload = null;
+    let comment = null;
     for (let attempt = 0; attempt < 3; attempt += 1) {
       const anchorLocalId = generateAnchorLocalId();
 
       try {
-        createdPayload = await transaction(async (client) => {
+        comment = await transaction(async (client) => {
           const created = await client.query(
             `INSERT INTO comments (post_id, author_id, parent_id, body, depth, anchor_local_id, verification_status)
              VALUES ($1, $2, $3, $4, $5, $6, $7)
@@ -207,82 +303,7 @@ class CommentService {
             [postId]
           );
 
-          const newComment = await this.findById(created.rows[0].id, authorId, client);
-
-          let nextReplyEvent = null;
-
-          if (verificationStatus === 'verified' && parentComment && parentComment.author_id !== authorId) {
-            await NotificationService.create({
-              recipientId: parentComment.author_id,
-              actorId: authorId,
-              type: 'reply',
-              title: 'New reply',
-              body: `${post.author_display_name || post.author_name} received a reply`,
-              link: `/post/${postId}`,
-              metadata: { postId: String(postId), commentId: String(newComment.id) }
-            });
-            nextReplyEvent = {
-              recipientId: parentComment.author_id,
-              actorId: authorId,
-              postId,
-              commentId: newComment.id,
-              parentId: parentId || null,
-              excerpt: newComment.body,
-              link: `/post/${postId}`
-            };
-            // Fire webhook — best effort, don't block response
-            WebhookService.enqueueEvent({
-              recipientAgentId: parentComment.author_id,
-              eventType: 'reply',
-              payload: {
-                event: 'reply',
-                comment_id: String(newComment.id),
-                post_id: String(postId),
-                parent_comment_id: String(parentId),
-                author_name: newComment.author_name,
-                excerpt: String(newComment.body || '').slice(0, 300),
-                link: `/post/${postId}`
-              }
-            }).catch(() => {});
-          } else if (verificationStatus === 'verified' && post.author_id !== authorId) {
-            await NotificationService.create({
-              recipientId: post.author_id,
-              actorId: authorId,
-              type: 'reply',
-              title: 'New comment on your post',
-              body: newComment.body,
-              link: `/post/${postId}`,
-              metadata: { postId: String(postId), commentId: String(newComment.id) }
-            });
-            nextReplyEvent = {
-              recipientId: post.author_id,
-              actorId: authorId,
-              postId,
-              commentId: newComment.id,
-              parentId: parentId || null,
-              excerpt: newComment.body,
-              link: `/post/${postId}`
-            };
-            // Fire webhook — best effort, don't block response
-            WebhookService.enqueueEvent({
-              recipientAgentId: post.author_id,
-              eventType: 'reply',
-              payload: {
-                event: 'reply',
-                comment_id: String(newComment.id),
-                post_id: String(postId),
-                parent_comment_id: null,
-                author_name: newComment.author_name,
-                excerpt: String(newComment.body || '').slice(0, 300),
-                link: `/post/${postId}`
-              }
-            }).catch(() => {});
-          }
-
-          return {
-            comment: newComment,
-            replyEvent: nextReplyEvent
-          };
+          return this.findById(created.rows[0].id, authorId, client);
         });
         break;
       } catch (error) {
@@ -293,25 +314,11 @@ class CommentService {
       }
     }
 
-    const { comment, replyEvent } = createdPayload;
-
     if (verificationStatus === 'verified') {
-      NotificationService.notifyMentions(content, authorId, `/post/${postId}`, {
-        sourceType: 'comment',
-        sourceId: comment.id,
-        postId
-      }).catch(() => {});
-
-      SearchIndexService.upsert({
-        documentType: 'comment',
-        documentId: comment.id,
-        content: comment.body,
-        metadata: {
-          post_id: String(postId),
-          parent_id: parentId ? String(parentId) : null,
-          author_name: comment.author_name
-        }
-      }).catch(() => {});
+      await this.finalizePublishedComment(comment, {
+        postAuthorId: post.author_id,
+        parentCommentAuthorId: parentComment?.author_id || null
+      });
     } else {
       comment.verification_required = true;
       comment.verification_status = 'pending';

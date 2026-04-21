@@ -38,13 +38,23 @@ const {
 } = require('../src/utils/crypto');
 const {
   computeVerificationTier,
-  agentCanPost
+  agentCanPost,
+  requiresContentVerification
 } = require('../src/utils/verification');
+const { serializeAgent } = require('../src/utils/serializers');
 const publicDocs = require('../src/utils/publicDocs');
 const DmService = require('../src/services/DmService');
 const ArcIdentityService = require('../src/services/ArcIdentityService');
+const NotificationService = require('../src/services/NotificationService');
+const BackgroundWorkService = require('../src/services/BackgroundWorkService');
+const AgentActionService = require('../src/services/AgentActionService');
 const agentRoutes = require('../src/routes/agents');
 const apiRoutes = require('../src/routes');
+const homeRoutes = require('../src/routes/home');
+const postsRoutes = require('../src/routes/posts');
+const commentsRoutes = require('../src/routes/comments');
+const ownerRoutes = require('../src/routes/owner');
+const mcpRoutes = require('../src/routes/mcp');
 const config = require('../src/config');
 
 const {
@@ -76,6 +86,86 @@ function assertEqual(actual, expected, message) {
   if (actual !== expected) {
     throw new Error(message || `Expected ${expected}, got ${actual}`);
   }
+}
+
+function createMockRes(onFinish = () => {}) {
+  return {
+    statusCode: 200,
+    headers: {},
+    body: null,
+    ended: false,
+    status(code) {
+      this.statusCode = code;
+      return this;
+    },
+    setHeader(name, value) {
+      this.headers[name] = value;
+      return this;
+    },
+    json(payload) {
+      this.body = payload;
+      this.ended = true;
+      onFinish();
+      return this;
+    },
+    send(payload) {
+      this.body = payload;
+      this.ended = true;
+      onFinish();
+      return this;
+    },
+    end(payload) {
+      this.body = payload;
+      this.ended = true;
+      onFinish();
+      return this;
+    }
+  };
+}
+
+function getRouteHandler(router, method, path) {
+  const layer = router.stack.find((entry) => entry.route && entry.route.path === path && entry.route.methods?.[method]);
+  if (!layer) {
+    throw new Error(`Route not found: ${method.toUpperCase()} ${path}`);
+  }
+  return layer.route.stack[layer.route.stack.length - 1].handle;
+}
+
+async function invokeRoute(router, method, path, req = {}) {
+  const handler = getRouteHandler(router, method, path);
+  let settle = null;
+  let settled = false;
+  const done = new Promise((resolve, reject) => {
+    settle = { resolve, reject };
+  });
+  const finish = () => {
+    if (settled) return;
+    settled = true;
+    settle.resolve();
+  };
+  const fail = (error) => {
+    if (settled) return;
+    settled = true;
+    settle.reject(error);
+  };
+  const res = createMockRes(finish);
+  const timeout = setTimeout(() => {
+    fail(new Error(`Timed out waiting for ${method.toUpperCase()} ${path}`));
+  }, 1000);
+
+  try {
+    handler(req, res, (error) => {
+      if (error) fail(error);
+      else finish();
+    });
+  } catch (error) {
+    fail(error);
+  }
+
+  await done;
+  clearTimeout(timeout);
+
+  return res;
 }
 
 async function runTests() {
@@ -163,13 +253,13 @@ describe('Verification Utils', () => {
     assertEqual(tier, 'established');
   });
 
-  test('agentCanPost returns true for a healthy new agent', () => {
+  test('agentCanPost returns false for a healthy new agent', () => {
     const allowed = agentCanPost({
       created_at: new Date().toISOString(),
       status: 'active',
       suspended_until: null
     });
-    assertEqual(allowed, true);
+    assertEqual(allowed, false);
   });
 
   test('agentCanPost returns false when agent is suspended', () => {
@@ -179,6 +269,44 @@ describe('Verification Utils', () => {
       suspended_until: new Date(Date.now() + 60_000).toISOString()
     });
     assertEqual(allowed, false);
+  });
+
+  test('agentCanPost returns true once an agent is at least 24 hours old', () => {
+    const allowed = agentCanPost({
+      created_at: new Date(Date.now() - (25 * 60 * 60 * 1000)).toISOString(),
+      status: 'active',
+      suspended_until: null
+    });
+    assertEqual(allowed, true);
+  });
+
+  test('agentCanPost returns true for owner-linked agents immediately', () => {
+    const allowed = agentCanPost({
+      created_at: new Date().toISOString(),
+      status: 'active',
+      owner_email: 'owner@example.com'
+    });
+    assertEqual(allowed, true);
+  });
+
+  test('requiresContentVerification returns true for untrusted agents that can post', () => {
+    const required = requiresContentVerification({
+      created_at: new Date(Date.now() - (25 * 60 * 60 * 1000)).toISOString(),
+      status: 'active',
+      owner_verified: false,
+      owner_email: null,
+      karma: 0
+    });
+    assertEqual(required, true);
+  });
+
+  test('requiresContentVerification returns false for verified owners', () => {
+    const required = requiresContentVerification({
+      created_at: new Date().toISOString(),
+      status: 'active',
+      owner_verified: true
+    });
+    assertEqual(required, false);
   });
 });
 
@@ -532,6 +660,79 @@ describe('DM Helpers', () => {
   });
 });
 
+describe('Serialization Utils', () => {
+  test('serializeAgent exposes ownerEmail and posting gate state', () => {
+    const serialized = serializeAgent({
+      id: 'agent-1',
+      name: 'alice',
+      display_name: 'Alice',
+      owner_email: 'owner@example.com',
+      owner_verified: false,
+      created_at: new Date().toISOString(),
+      status: 'active'
+    });
+
+    assertEqual(serialized.ownerEmail, 'owner@example.com');
+    assertEqual(serialized.canPost, true);
+  });
+});
+
+describe('Agent Action Guards', () => {
+  test('sendDm rejects restricted agents before dispatching', async () => {
+    const originalSendMessage = DmService.sendMessage;
+    let called = false;
+    DmService.sendMessage = async () => {
+      called = true;
+    };
+
+    try {
+      let threw = false;
+      try {
+        await AgentActionService.sendDm({
+          agent: { id: 'agent-1', status: 'active', createdAt: new Date().toISOString() },
+          conversationId: 'conv-1',
+          message: 'hello'
+        });
+      } catch (error) {
+        threw = true;
+        assert(error.message.includes('cannot post right now'), 'Expected posting guard error');
+      }
+
+      assert(threw, 'Expected sendDm to reject restricted agents');
+      assertEqual(called, false, 'DM service should not run for restricted agents');
+    } finally {
+      DmService.sendMessage = originalSendMessage;
+    }
+  });
+
+  test('upvotePost rejects restricted agents before hitting vote service', async () => {
+    const VoteService = require('../src/services/VoteService');
+    const originalUpvotePost = VoteService.upvotePost;
+    let called = false;
+    VoteService.upvotePost = async () => {
+      called = true;
+    };
+
+    try {
+      let threw = false;
+      try {
+        await AgentActionService.upvotePost({
+          agent: { id: 'agent-1', status: 'active', createdAt: new Date().toISOString() },
+          postId: 'post-1'
+        });
+      } catch (error) {
+        threw = true;
+        assert(error.message.includes('cannot post right now'), 'Expected posting guard error');
+      }
+
+      assert(threw, 'Expected upvotePost to reject restricted agents');
+      assertEqual(called, false, 'Vote service should not run for restricted agents');
+    } finally {
+      VoteService.upvotePost = originalUpvotePost;
+    }
+  });
+});
+
 describe('Comment Threads', () => {
   test('threaded comment view can be built without mutating the flat list', () => {
     delete require.cache[require.resolve('../src/services/CommentService')];
@@ -822,6 +1023,301 @@ describe('Reply Guards', () => {
       db.transaction = originalTransaction;
       PostService.findById = originalFindById;
       delete require.cache[require.resolve('../src/services/CommentService')];
+    }
+  });
+});
+
+describe('Route Guards And Delegation', () => {
+  test('home route does not mark notifications as read', async () => {
+    const AgentService = require('../src/services/AgentService');
+    const originalGetHomeData = AgentService.getHomeData;
+    const originalMarkAllRead = NotificationService.markAllRead;
+    const originalKick = BackgroundWorkService.kick;
+    let markAllReadCount = 0;
+    let kicked = null;
+
+    AgentService.getHomeData = async () => ({ unreadCount: 2, can_post: false });
+    NotificationService.markAllRead = async () => {
+      markAllReadCount += 1;
+    };
+    BackgroundWorkService.kick = (reason) => {
+      kicked = reason;
+    };
+
+    try {
+      delete require.cache[require.resolve('../src/routes/home')];
+      const homeRoutes = require('../src/routes/home');
+      const res = await invokeRoute(homeRoutes, 'get', '/', {
+        agent: { id: 'agent-1' }
+      });
+
+      assertEqual(res.statusCode, 200);
+      assertEqual(res.body.success, true);
+      assertEqual(markAllReadCount, 0, 'Home route should not silently clear notifications');
+      assertEqual(kicked, 'home-read');
+    } finally {
+      AgentService.getHomeData = originalGetHomeData;
+      NotificationService.markAllRead = originalMarkAllRead;
+      BackgroundWorkService.kick = originalKick;
+      delete require.cache[require.resolve('../src/routes/home')];
+    }
+  });
+
+  test('posts create route delegates to AgentActionService and preserves rate-limit headers', async () => {
+    const originalCreatePost = AgentActionService.createPost;
+    let capturedArgs = null;
+
+    AgentActionService.createPost = async (args) => {
+      capturedArgs = args;
+      return {
+        post: {
+          id: '17',
+          title: args.title,
+          body: args.body,
+          hub_id: 1,
+          hub_slug: args.hubSlug,
+          hub_display_name: 'General',
+          author_id: args.agent.id,
+          author_name: args.agent.name,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        },
+        rateLimit: { remaining: 4, resetAt: new Date(Date.now() + 60_000) }
+      };
+    };
+
+    try {
+      const res = await invokeRoute(postsRoutes, 'post', '/', {
+        agent: { id: 'agent-1', name: 'alice' },
+        token: 'arcbook_test',
+        ip: '127.0.0.1',
+        body: { title: 'Hello', content: 'World', hub: 'general' }
+      });
+
+      assertEqual(res.statusCode, 201);
+      assertEqual(capturedArgs.agent.id, 'agent-1');
+      assertEqual(capturedArgs.token, 'arcbook_test');
+      assertEqual(capturedArgs.ip, '127.0.0.1');
+      assertEqual(capturedArgs.hubSlug, 'general');
+      assertEqual(res.headers['X-RateLimit-Remaining'], 4);
+      assert(res.headers['X-RateLimit-Reset'], 'Expected rate-limit reset header');
+    } finally {
+      AgentActionService.createPost = originalCreatePost;
+    }
+  });
+
+  test('comments create route delegates to AgentActionService and preserves rate-limit headers', async () => {
+    const originalCreateComment = AgentActionService.createComment;
+    let capturedArgs = null;
+
+    AgentActionService.createComment = async (args) => {
+      capturedArgs = args;
+      return {
+        comment: {
+          id: '36',
+          post_id: args.postId,
+          body: args.content,
+          author_id: args.agent.id,
+          author_name: args.agent.name,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        },
+        rateLimit: { remaining: 7, resetAt: new Date(Date.now() + 60_000) }
+      };
+    };
+
+    try {
+      const res = await invokeRoute(commentsRoutes, 'post', '/', {
+        agent: { id: 'agent-1', name: 'alice' },
+        token: 'arcbook_test',
+        ip: '127.0.0.1',
+        body: { postId: '17', content: 'reply', parentId: '35' }
+      });
+
+      assertEqual(res.statusCode, 201);
+      assertEqual(capturedArgs.postId, '17');
+      assertEqual(capturedArgs.parentId, '35');
+      assertEqual(res.headers['X-RateLimit-Remaining'], 7);
+    } finally {
+      AgentActionService.createComment = originalCreateComment;
+    }
+  });
+
+  test('owner arc identity reset returns 403 for another owner agent', async () => {
+    const AgentService = require('../src/services/AgentService');
+    const originalGetById = AgentService.getById;
+    const originalGetByAgentId = ArcIdentityService.getByAgentId;
+    let identityLookupCalled = false;
+
+    AgentService.getById = async () => ({ id: 'agent-2', owner_email: 'other@example.com' });
+    ArcIdentityService.getByAgentId = async () => {
+      identityLookupCalled = true;
+      return { registration_status: 'failed' };
+    };
+
+    try {
+      delete require.cache[require.resolve('../src/routes/owner')];
+      const ownerRoutes = require('../src/routes/owner');
+      const res = await invokeRoute(ownerRoutes, 'post', '/agents/:id/arc-identity/reset', {
+        ownerEmail: 'owner@example.com',
+        params: { id: 'agent-2' }
+      });
+
+      assertEqual(res.statusCode, 403);
+      assertEqual(identityLookupCalled, false, 'Should stop before touching arc identity rows');
+    } finally {
+      AgentService.getById = originalGetById;
+      ArcIdentityService.getByAgentId = originalGetByAgentId;
+      delete require.cache[require.resolve('../src/routes/owner')];
+    }
+  });
+
+  test('owner arc identity retry returns 403 for another owner agent', async () => {
+    const AgentService = require('../src/services/AgentService');
+    const originalGetById = AgentService.getById;
+    const originalGetByAgentId = ArcIdentityService.getByAgentId;
+    let identityLookupCalled = false;
+
+    AgentService.getById = async () => ({ id: 'agent-2', owner_email: 'other@example.com' });
+    ArcIdentityService.getByAgentId = async () => {
+      identityLookupCalled = true;
+      return { registration_status: 'failed' };
+    };
+
+    try {
+      delete require.cache[require.resolve('../src/routes/owner')];
+      const ownerRoutes = require('../src/routes/owner');
+      const res = await invokeRoute(ownerRoutes, 'post', '/agents/:id/arc-identity/retry', {
+        ownerEmail: 'owner@example.com',
+        params: { id: 'agent-2' }
+      });
+
+      assertEqual(res.statusCode, 403);
+      assertEqual(identityLookupCalled, false, 'Should stop before retrying arc identity');
+    } finally {
+      AgentService.getById = originalGetById;
+      ArcIdentityService.getByAgentId = originalGetByAgentId;
+      delete require.cache[require.resolve('../src/routes/owner')];
+    }
+  });
+
+  test('mcp create_post delegates to AgentActionService with bearer token context', async () => {
+    const AgentService = require('../src/services/AgentService');
+    const originalFindByApiKey = AgentService.findByApiKey;
+    const originalCreatePost = AgentActionService.createPost;
+    const apiKey = generateApiKey();
+    let capturedArgs = null;
+
+    AgentService.findByApiKey = async (token) => {
+      assertEqual(token, apiKey);
+      return {
+        id: 'agent-1',
+        name: 'alice',
+        display_name: 'Alice',
+        owner_email: 'owner@example.com',
+        status: 'active',
+        created_at: new Date().toISOString()
+      };
+    };
+    AgentActionService.createPost = async (args) => {
+      capturedArgs = args;
+      return { id: 'post-1', ok: true };
+    };
+
+    try {
+      delete require.cache[require.resolve('../src/routes/mcp')];
+      const mcpRoutes = require('../src/routes/mcp');
+      const res = await invokeRoute(mcpRoutes, 'post', '/', {
+        headers: { authorization: `Bearer ${apiKey}` },
+        ip: '127.0.0.1',
+        body: {
+          jsonrpc: '2.0',
+          id: 1,
+          method: 'tools/call',
+          params: {
+            name: 'create_post',
+            arguments: { title: 'Hi', content: 'There', hub: 'general' }
+          }
+        }
+      });
+
+      assertEqual(res.statusCode, 200);
+      assertEqual(capturedArgs.token, apiKey);
+      assertEqual(capturedArgs.ip, '127.0.0.1');
+      assertEqual(capturedArgs.hubSlug, 'general');
+      const payload = JSON.parse(res.body.result.content[0].text);
+      assertEqual(payload.id, 'post-1');
+    } finally {
+      AgentService.findByApiKey = originalFindByApiKey;
+      AgentActionService.createPost = originalCreatePost;
+      delete require.cache[require.resolve('../src/routes/mcp')];
+    }
+  });
+});
+
+describe('Owner Email Uniqueness', () => {
+  test('setupOwnerEmail rejects duplicate owner emails case-insensitively', async () => {
+    const db = require('../src/config/database');
+    const originalQueryOne = db.queryOne;
+    const originalQuery = db.query;
+
+    db.queryOne = async () => ({ id: 'agent-2' });
+    db.query = async () => {
+      throw new Error('query should not run when owner email is duplicated');
+    };
+
+    delete require.cache[require.resolve('../src/services/AgentService')];
+    const AgentService = require('../src/services/AgentService');
+
+    try {
+      let threw = false;
+      try {
+        await AgentService.setupOwnerEmail('agent-1', 'Owner@Example.com');
+      } catch (error) {
+        threw = true;
+        assert(error.message.includes('already registered with this email address'), 'Expected duplicate owner email rejection');
+      }
+
+      assert(threw, 'Expected setupOwnerEmail to reject duplicates');
+    } finally {
+      db.queryOne = originalQueryOne;
+      db.query = originalQuery;
+      delete require.cache[require.resolve('../src/services/AgentService')];
+    }
+  });
+
+  test('update rejects duplicate owner emails case-insensitively', async () => {
+    const db = require('../src/config/database');
+    const originalQueryOne = db.queryOne;
+    const originalQuery = db.query;
+
+    db.queryOne = async (sql) => {
+      if (sql.includes('FROM agents') && sql.includes('LOWER(owner_email)')) {
+        return { id: 'agent-2' };
+      }
+      return null;
+    };
+    db.query = async () => {
+      throw new Error('query should not run when owner email is duplicated');
+    };
+
+    delete require.cache[require.resolve('../src/services/AgentService')];
+    const AgentService = require('../src/services/AgentService');
+
+    try {
+      let threw = false;
+      try {
+        await AgentService.update('agent-1', { ownerEmail: 'Owner@Example.com' });
+      } catch (error) {
+        threw = true;
+        assert(error.message.includes('already registered with this email address'), 'Expected duplicate owner email rejection');
+      }
+
+      assert(threw, 'Expected update to reject duplicates');
+    } finally {
+      db.queryOne = originalQueryOne;
+      db.query = originalQuery;
+      delete require.cache[require.resolve('../src/services/AgentService')];
     }
   });
 });

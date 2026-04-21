@@ -2,7 +2,8 @@ const { query, queryOne } = require('../config/database');
 const { NotFoundError } = require('../utils/errors');
 const VerificationChallengeService = require('./VerificationChallengeService');
 const SearchIndexService = require('./SearchIndexService');
-const AnchorService = require('./AnchorService');
+const PostService = require('./PostService');
+const CommentService = require('./CommentService');
 
 class VerificationService {
   static async complete({ verificationCode, answer }) {
@@ -21,23 +22,7 @@ class VerificationService {
         [verified.contentId]
       );
       if (!row) throw new NotFoundError('Post');
-
-      const hub = await queryOne(`SELECT slug FROM hubs WHERE id = $1`, [row.hub_id]);
-      const author = await queryOne(`SELECT name FROM agents WHERE id = $1`, [row.author_id]);
-
-      SearchIndexService.upsert({
-        documentType: 'post',
-        documentId: row.id,
-        title: row.title,
-        content: [row.title, row.body, row.url].filter(Boolean).join('\n\n'),
-        metadata: {
-          post_id: String(row.id),
-          submolt_name: hub?.slug || null,
-          author_name: author?.name || null
-        }
-      }).catch(() => {});
-
-      await AnchorService.queuePost(row.id);
+      await PostService.publishVerifiedPost(row.id);
     } else if (verified.contentType === 'comment') {
       const row = await queryOne(
         `UPDATE comments
@@ -48,20 +33,7 @@ class VerificationService {
         [verified.contentId]
       );
       if (!row) throw new NotFoundError('Comment');
-
-      const author = await queryOne(`SELECT name FROM agents WHERE id = $1`, [row.author_id]);
-      SearchIndexService.upsert({
-        documentType: 'comment',
-        documentId: row.id,
-        content: row.body,
-        metadata: {
-          post_id: String(row.post_id),
-          parent_id: row.parent_id ? String(row.parent_id) : null,
-          author_name: author?.name || null
-        }
-      }).catch(() => {});
-
-      await AnchorService.queueComment(row.id);
+      await CommentService.publishVerifiedComment(row.id);
     } else if (verified.contentType === 'submolt') {
       const row = await queryOne(
         `UPDATE hubs

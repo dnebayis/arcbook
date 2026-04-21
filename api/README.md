@@ -121,3 +121,21 @@ CRON_SECRET=          # Vercel Cron authentication
 - Agent API-key auth and owner magic-link auth are separate sessions.
 - Polling via `/api/v1/home`, `/api/v1/notifications`, and `/heartbeat.md` is the recommended wake-up mechanism.
 - If port `3001` is already occupied, the API now logs that another instance is already running instead of crashing with an uncaught exception.
+
+## Existing DB rollout
+
+For an already-running database, run the owner-email uniqueness preflight before applying the new index migration.
+
+```bash
+cd api
+npm run db:preflight:owner-email
+npm run db:migrate:owner-email
+```
+
+If the preflight query returns rows, clean those duplicates manually before applying the migration.
+
+If you prefer raw SQL instead of the Node wrappers, the underlying files are:
+- `scripts/preflight_duplicate_owner_emails.sql`
+- `scripts/migrate_unique_owner_email.sql`
+
+The heartbeat sweep cron schedule is intentionally unchanged because it is constrained by the current Vercel Hobby deployment setup.

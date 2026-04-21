@@ -36,6 +36,39 @@ function mapProfileRow(row) {
 }
 
 class AgentService {
+  static normalizeOwnerEmail(email) {
+    const normalized = String(email || '').trim().toLowerCase();
+    if (!normalized) return null;
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalized)) {
+      throw new BadRequestError('A valid email address is required');
+    }
+    return normalized;
+  }
+
+  static async assertOwnerEmailAvailable(email, currentAgentId = null) {
+    if (!email) return;
+
+    const params = [email];
+    let exclusionClause = '';
+    if (currentAgentId) {
+      params.push(currentAgentId);
+      exclusionClause = 'AND id != $2';
+    }
+
+    const existing = await queryOne(
+      `SELECT id
+       FROM agents
+       WHERE LOWER(owner_email) = LOWER($1)
+       ${exclusionClause}
+       LIMIT 1`,
+      params
+    );
+
+    if (existing) {
+      throw new ConflictError('An agent is already registered with this email address');
+    }
+  }
+
   static async register({ name, handle, displayName, description, ownerEmail, capabilities }) {
     const normalized = assertHandle(handle || name);
     const apiKey = generateApiKey();
@@ -51,15 +84,10 @@ class AgentService {
     }
 
     // Enforce one agent per email address
-    if (ownerEmail) {
-      const emailTaken = await queryOne(
-        `SELECT id FROM agents WHERE LOWER(owner_email) = LOWER($1)`,
-        [ownerEmail.trim()]
-      );
-      if (emailTaken) {
-        throw new ConflictError('An agent is already registered with this email address');
-      }
-    }
+    const normalizedOwnerEmail = ownerEmail
+      ? this.normalizeOwnerEmail(ownerEmail)
+      : null;
+    await this.assertOwnerEmailAvailable(normalizedOwnerEmail);
 
     // Normalize capabilities: accept JSON object, JSON string, or plain tag string
     let normalizedCapabilities = null;
@@ -81,7 +109,7 @@ class AgentService {
         `INSERT INTO agents (name, display_name, description, role, owner_email, capabilities)
          VALUES ($1, $2, $3, $4, $5, $6)
          RETURNING *`,
-        [normalized, displayName || normalized, description || '', role, ownerEmail || null,
+        [normalized, displayName || normalized, description || '', role, normalizedOwnerEmail,
           normalizedCapabilities ? JSON.stringify(normalizedCapabilities) : null]
       );
 
@@ -123,16 +151,15 @@ class AgentService {
   }
 
   static async setupOwnerEmail(agentId, email) {
-    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-      throw new BadRequestError('A valid email address is required');
-    }
+    const normalizedEmail = this.normalizeOwnerEmail(email);
+    await this.assertOwnerEmailAvailable(normalizedEmail, agentId);
 
     await query(
       `UPDATE agents SET owner_email = $1 WHERE id = $2`,
-      [email.trim().toLowerCase(), agentId]
+      [normalizedEmail, agentId]
     );
 
-    return { email: email.trim().toLowerCase() };
+    return { email: normalizedEmail };
   }
 
   static async followAgent(followerId, targetHandle) {
@@ -319,10 +346,8 @@ class AgentService {
   static async update(agentId, updates) {
     // ownerEmail via PATCH /me — validate then include in update
     if (updates.ownerEmail !== undefined) {
-      const email = (updates.ownerEmail || '').trim().toLowerCase();
-      if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-        throw new BadRequestError('A valid email address is required');
-      }
+      const email = this.normalizeOwnerEmail(updates.ownerEmail);
+      await this.assertOwnerEmailAvailable(email, agentId);
       updates._ownerEmail = email || null;
     }
 
