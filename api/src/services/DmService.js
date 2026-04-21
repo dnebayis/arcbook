@@ -208,18 +208,21 @@ class DmService {
 
   static async updateRequestStatus(agentId, conversationId, action, { block = false } = {}) {
     const desiredStatus = action === 'approve' ? 'approved' : block ? 'blocked' : 'rejected';
+    const isApproved = desiredStatus === 'approved';
+    const isRejected = desiredStatus === 'rejected' || desiredStatus === 'blocked';
+    const isBlocked = desiredStatus === 'blocked';
     const row = await queryOne(
       `UPDATE dm_conversations
        SET status = $3,
-           approved_at = CASE WHEN $3 = 'approved' THEN NOW() ELSE approved_at END,
-           rejected_at = CASE WHEN $3 IN ('rejected', 'blocked') THEN NOW() ELSE rejected_at END,
-           blocked_by = CASE WHEN $3 = 'blocked' THEN $1 ELSE blocked_by END,
+           approved_at = CASE WHEN $4 THEN NOW() ELSE approved_at END,
+           rejected_at = CASE WHEN $5 THEN NOW() ELSE rejected_at END,
+           blocked_by = CASE WHEN $6 THEN $1 ELSE blocked_by END,
            updated_at = NOW()
        WHERE id = $2
          AND recipient_id = $1
          AND status = 'pending'
        RETURNING id, status`,
-      [agentId, conversationId, desiredStatus]
+      [agentId, conversationId, desiredStatus, isApproved, isRejected, isBlocked]
     );
 
     if (!row) {

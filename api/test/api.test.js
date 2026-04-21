@@ -658,6 +658,126 @@ describe('DM Helpers', () => {
     assertEqual(DmService.normalizeOwnerHandle('@Alice'), 'alice');
     assertEqual(DmService.normalizeOwnerHandle('Bob'), 'bob');
   });
+
+  test('updateRequestStatus uses typed approval flags instead of reusing the status param', async () => {
+    const db = require('../src/config/database');
+    const originalQueryOne = db.queryOne;
+    let capturedParams = null;
+
+    db.queryOne = async (_sql, params) => {
+      capturedParams = params;
+      return { id: 'conv-1', status: 'approved' };
+    };
+
+    delete require.cache[require.resolve('../src/services/DmService')];
+    const DmService = require('../src/services/DmService');
+
+    try {
+      const result = await DmService.updateRequestStatus('agent-2', 'conv-1', 'approve');
+
+      assertEqual(result.success, true);
+      assertEqual(result.status, 'approved');
+      assert(capturedParams, 'Expected query params to be captured');
+      assertEqual(capturedParams.length, 6, 'Expected boolean guard params for DM status update');
+      assertEqual(capturedParams[2], 'approved');
+      assertEqual(capturedParams[3], true);
+      assertEqual(capturedParams[4], false);
+      assertEqual(capturedParams[5], false);
+    } finally {
+      db.queryOne = originalQueryOne;
+      delete require.cache[require.resolve('../src/services/DmService')];
+    }
+  });
+});
+
+describe('Notification Helpers', () => {
+  test('notifyMentions waits for notification inserts before emitting mention events', async () => {
+    const db = require('../src/config/database');
+    const AgentEventService = require('../src/services/AgentEventService');
+    const WebhookService = require('../src/services/WebhookService');
+    const originalQueryAll = db.queryAll;
+    const originalEmitMention = AgentEventService.emitMention;
+    const originalEnqueueEvent = WebhookService.enqueueEvent;
+
+    db.queryAll = async () => [{ id: 'agent-2' }];
+    let insertResolved = false;
+    let emitCalled = false;
+
+    delete require.cache[require.resolve('../src/services/NotificationService')];
+    const NotificationService = require('../src/services/NotificationService');
+    const originalCreate = NotificationService.create;
+
+    NotificationService.create = async () => new Promise((resolve) => {
+      setTimeout(() => {
+        insertResolved = true;
+        resolve({ id: 'notif-1' });
+      }, 10);
+    });
+    AgentEventService.emitMention = async () => {
+      emitCalled = true;
+      assertEqual(insertResolved, true, 'Mention events should emit only after notification inserts complete');
+    };
+    WebhookService.enqueueEvent = async () => ({ queued: true });
+
+    try {
+      await NotificationService.notifyMentions('@bob hi', 'agent-1', '/post/17', {
+        postId: '17',
+        sourceType: 'post',
+        sourceId: '17'
+      });
+
+      assertEqual(emitCalled, true, 'Expected mention event emission');
+    } finally {
+      NotificationService.create = originalCreate;
+      AgentEventService.emitMention = originalEmitMention;
+      WebhookService.enqueueEvent = originalEnqueueEvent;
+      db.queryAll = originalQueryAll;
+      delete require.cache[require.resolve('../src/services/NotificationService')];
+    }
+  });
+
+  test('notifyMentions surfaces notification insert failures', async () => {
+    const db = require('../src/config/database');
+    const AgentEventService = require('../src/services/AgentEventService');
+    const WebhookService = require('../src/services/WebhookService');
+    const originalQueryAll = db.queryAll;
+    const originalEmitMention = AgentEventService.emitMention;
+    const originalEnqueueEvent = WebhookService.enqueueEvent;
+
+    db.queryAll = async () => [{ id: 'agent-2' }];
+    let emitCalled = false;
+
+    delete require.cache[require.resolve('../src/services/NotificationService')];
+    const NotificationService = require('../src/services/NotificationService');
+    const originalCreate = NotificationService.create;
+
+    NotificationService.create = async () => {
+      throw new Error('insert failed');
+    };
+    AgentEventService.emitMention = async () => {
+      emitCalled = true;
+    };
+    WebhookService.enqueueEvent = async () => ({ queued: true });
+
+    try {
+      let threw = false;
+      try {
+        await NotificationService.notifyMentions('@bob hi', 'agent-1', '/post/17');
+      } catch (error) {
+        threw = true;
+        assert(error.message.includes('insert failed'), 'Expected insert failure to surface');
+      }
+
+      assert(threw, 'Expected notifyMentions to reject on notification insert failure');
+      assertEqual(emitCalled, false, 'Mention events should not emit after a failed notification insert');
+    } finally {
+      NotificationService.create = originalCreate;
+      AgentEventService.emitMention = originalEmitMention;
+      WebhookService.enqueueEvent = originalEnqueueEvent;
+      db.queryAll = originalQueryAll;
+      delete require.cache[require.resolve('../src/services/NotificationService')];
+    }
+  });
 });
 
 describe('Serialization Utils', () => {
@@ -1197,6 +1317,38 @@ describe('Route Guards And Delegation', () => {
     } finally {
       AgentService.getById = originalGetById;
       ArcIdentityService.getByAgentId = originalGetByAgentId;
+      delete require.cache[require.resolve('../src/routes/owner')];
+    }
+  });
+
+  test('owner account cleanup disables active webhooks with the schema-backed columns', async () => {
+    const db = require('../src/config/database');
+    const originalQueryAll = db.queryAll;
+    const originalQuery = db.query;
+    const executed = [];
+
+    db.queryAll = async () => [{ id: 'agent-1' }];
+    db.query = async (sql, params) => {
+      executed.push({ sql, params });
+      return { rows: [], rowCount: 1 };
+    };
+
+    try {
+      delete require.cache[require.resolve('../src/routes/owner')];
+      const ownerRoutes = require('../src/routes/owner');
+      const res = await invokeRoute(ownerRoutes, 'delete', '/account', {
+        ownerEmail: 'owner@example.com'
+      });
+
+      assertEqual(res.statusCode, 204);
+      const webhookUpdate = executed.find((entry) => entry.sql.includes('UPDATE agent_webhooks'));
+      assert(webhookUpdate, 'Expected owner account deletion to update agent webhooks');
+      assert(webhookUpdate.sql.includes("status = 'disabled'"), 'Webhook cleanup should disable status');
+      assert(webhookUpdate.sql.includes('disabled_at = NOW()'), 'Webhook cleanup should stamp disabled_at');
+      assert(webhookUpdate.sql.includes('updated_at = NOW()'), 'Webhook cleanup should stamp updated_at');
+    } finally {
+      db.queryAll = originalQueryAll;
+      db.query = originalQuery;
       delete require.cache[require.resolve('../src/routes/owner')];
     }
   });

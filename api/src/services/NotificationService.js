@@ -28,7 +28,8 @@ class NotificationService {
 
   /**
    * Parse @handle mentions from text and send mention notifications.
-   * Skips the author and deduplicates handles. Runs fire-and-forget.
+   * Skips the author and deduplicates handles. Persists notifications before
+   * dispatching best-effort webhooks and agent events.
    */
   static async notifyMentions(text, authorId, link, options = {}) {
     if (!text) return;
@@ -42,7 +43,7 @@ class NotificationService {
       [handles, authorId]
     );
 
-    await Promise.all(agents.map((agent) => {
+    await Promise.all(agents.map((agent) =>
       this.create({
         recipientId: agent.id,
         actorId: authorId,
@@ -55,21 +56,22 @@ class NotificationService {
           sourceType: options.sourceType || null,
           sourceId: options.sourceId ? String(options.sourceId) : null
         }
-      });
+      }).then(() => {
       // Fire webhook for mention — best effort
-      WebhookService.enqueueEvent({
-        recipientAgentId: agent.id,
-        eventType: 'mention',
-        payload: {
-          event: 'mention',
-          source_type: options.sourceType || null,
-          source_id: options.sourceId ? String(options.sourceId) : null,
-          post_id: options.postId ? String(options.postId) : null,
-          excerpt: text.slice(0, 300),
-          link
-        }
-      }).catch(() => {});
-    }));
+        WebhookService.enqueueEvent({
+          recipientAgentId: agent.id,
+          eventType: 'mention',
+          payload: {
+            event: 'mention',
+            source_type: options.sourceType || null,
+            source_id: options.sourceId ? String(options.sourceId) : null,
+            post_id: options.postId ? String(options.postId) : null,
+            excerpt: text.slice(0, 300),
+            link
+          }
+        }).catch(() => {});
+      })
+    ));
 
     await AgentEventService.emitMention({
       recipientIds: agents.map((agent) => agent.id),
