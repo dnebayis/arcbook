@@ -62,6 +62,7 @@ class SearchService {
 
     const cappedLimit = Math.min(Number(limit) || 20, 50);
     const pattern = `%${q}%`;
+    const handlePattern = q.startsWith('@') ? `%${q.slice(1)}%` : pattern;
     const queryEmbedding = SearchIndexService.embedText(q);
     const offset = cursor ? Number(Buffer.from(String(cursor), 'base64url').toString('utf8')) || 0 : 0;
 
@@ -71,7 +72,7 @@ class SearchService {
         ? ['comment']
         : ['post', 'comment'];
 
-    const [semanticDocs, agents, submolts] = await Promise.all([
+    const [semanticDocs, agents, submolts, lexicalPosts, lexicalComments] = await Promise.all([
       queryAll(
         `SELECT document_type, document_id, title, content, metadata, embedding_json, updated_at
          FROM semantic_documents
@@ -92,7 +93,7 @@ class SearchService {
             OR a.description ILIKE $1
          ORDER BY a.karma DESC, a.created_at DESC
          LIMIT $2`,
-        [q.startsWith('@') ? `%${q.slice(1)}%` : pattern, cappedLimit]
+        [handlePattern, cappedLimit]
       ),
       queryAll(
         `SELECT *,
@@ -105,6 +106,61 @@ class SearchService {
          ORDER BY member_count DESC, post_count DESC, created_at DESC
          LIMIT $2`,
         [pattern, cappedLimit]
+      ),
+      queryAll(
+        `SELECT p.*,
+                h.slug AS hub_slug,
+                h.display_name AS hub_display_name,
+                author.name AS author_name,
+                author.display_name AS author_display_name,
+                author.avatar_url AS author_avatar_url,
+                ${arcIdentitySelect('author_arc', 'author_ai')}
+         FROM posts p
+         JOIN hubs h ON h.id = p.hub_id
+         JOIN agents author ON author.id = p.author_id
+         LEFT JOIN agent_arc_identities author_ai ON author_ai.agent_id = author.id
+         WHERE p.is_removed = false
+           AND p.verification_status = 'verified'
+           AND (
+             p.title ILIKE $1
+             OR p.body ILIKE $1
+             OR author.name ILIKE $2
+             OR author.display_name ILIKE $1
+           )
+         ORDER BY
+           CASE
+             WHEN author.name ILIKE $2 THEN 0
+             WHEN author.display_name ILIKE $1 THEN 1
+             WHEN p.title ILIKE $1 THEN 2
+             ELSE 3
+           END,
+           p.created_at DESC
+         LIMIT $3`,
+        [pattern, handlePattern, cappedLimit]
+      ),
+      queryAll(
+        `SELECT c.*,
+                author.name AS author_name,
+                author.display_name AS author_display_name,
+                author.avatar_url AS author_avatar_url
+         FROM comments c
+         JOIN agents author ON author.id = c.author_id
+         WHERE c.is_removed = false
+           AND c.verification_status = 'verified'
+           AND (
+             c.body ILIKE $1
+             OR author.name ILIKE $2
+             OR author.display_name ILIKE $1
+           )
+         ORDER BY
+           CASE
+             WHEN author.name ILIKE $2 THEN 0
+             WHEN author.display_name ILIKE $1 THEN 1
+             ELSE 2
+           END,
+           c.created_at DESC
+         LIMIT $3`,
+        [pattern, handlePattern, cappedLimit]
       )
     ]);
 
@@ -120,7 +176,7 @@ class SearchService {
     const postIds = semanticRanked.filter((row) => row.document_type === 'post').map((row) => row.document_id);
     const commentIds = semanticRanked.filter((row) => row.document_type === 'comment').map((row) => row.document_id);
 
-    const [posts, comments] = await Promise.all([
+    const [semanticPosts, semanticComments] = await Promise.all([
       postIds.length
         ? queryAll(
             `SELECT p.*,
@@ -156,6 +212,8 @@ class SearchService {
         : []
     ]);
 
+    const posts = dedupeById([...lexicalPosts, ...semanticPosts]);
+    const comments = dedupeById([...lexicalComments, ...semanticComments]);
     const postsById = new Map(posts.map((row) => [String(row.id), row]));
     const commentsById = new Map(comments.map((row) => [String(row.id), row]));
 
@@ -220,6 +278,10 @@ class SearchService {
       nextCursor
     };
   }
+}
+
+function dedupeById(rows) {
+  return Array.from(new Map((rows || []).map((row) => [String(row.id), row])).values());
 }
 
 module.exports = SearchService;

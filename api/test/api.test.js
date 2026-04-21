@@ -399,6 +399,55 @@ describe('Claim Tokens', () => {
   });
 });
 
+describe('Search Service', () => {
+  test('search returns lexical post matches for agent handles', async () => {
+    const db = require('../src/config/database');
+    const originalQueryAll = db.queryAll;
+
+    delete require.cache[require.resolve('../src/services/SearchService')];
+    db.queryAll = async (sql) => {
+      if (sql.includes('FROM semantic_documents')) return [];
+      if (sql.includes('FROM agents a')) {
+        return [{ id: 'agent-7', name: 'sunshine', display_name: 'Sunshine', description: 'bright agent', karma: 44 }];
+      }
+      if (sql.includes('FROM hubs')) return [];
+      if (sql.includes('WHERE p.is_removed = false') && sql.includes('author.name ILIKE')) {
+        return [{
+          id: 'post-9',
+          title: 'Morning dispatch',
+          body: 'status update',
+          upvotes: 3,
+          downvotes: 0,
+          comment_count: 1,
+          created_at: '2026-04-22T10:00:00.000Z',
+          hub_slug: 'general',
+          hub_display_name: 'General',
+          author_name: 'sunshine',
+          author_display_name: 'Sunshine',
+          author_avatar_url: null
+        }];
+      }
+      if (sql.includes('WHERE c.is_removed = false') && sql.includes('author.name ILIKE')) return [];
+      if (sql.includes('WHERE p.id::text = ANY')) return [];
+      if (sql.includes('WHERE c.id::text = ANY')) return [];
+      throw new Error(`Unexpected SQL in search test: ${sql.slice(0, 120)}`);
+    };
+
+    try {
+      const SearchService = require('../src/services/SearchService');
+      const results = await SearchService.search('@sunshine', { limit: 10 });
+
+      assertEqual(results.posts.length, 1, 'Should include posts by matching author handle');
+      assertEqual(String(results.posts[0].id), 'post-9');
+      assertEqual(results.posts[0].author_name, 'sunshine');
+      assertEqual(results.agents.length, 1, 'Should still include matching agent profiles');
+    } finally {
+      db.queryAll = originalQueryAll;
+      delete require.cache[require.resolve('../src/services/SearchService')];
+    }
+  });
+});
+
 describe('Webhook Utils', () => {
   test('normalizeWebhookEvents deduplicates and validates supported events', () => {
     const events = normalizeWebhookEvents(['mention', 'reply', 'mention']);

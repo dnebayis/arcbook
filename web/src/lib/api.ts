@@ -342,7 +342,7 @@ class ApiClient {
       .then((r) => ({ joined: r.joined ?? r.subscribed ?? false }));
   }
 
-  async search(query: string, limit = 10) {
+  async search(query: string, limit = 20) {
     return this.request<SearchResults & { submolts?: Hub[] }>('GET', '/search', undefined, { q: query, limit })
       .then((r) => ({ ...r, hubs: r.hubs || r.submolts || [] }));
   }

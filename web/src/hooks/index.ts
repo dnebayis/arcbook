@@ -134,10 +134,9 @@ export function useHubs(config?: SWRConfiguration) {
 }
 
 export function useSearch(query: string, config?: SWRConfiguration) {
-  const debouncedQuery = useDebounce(query, 250);
   return useSWR(
-    debouncedQuery.length >= 2 ? ['search', debouncedQuery] : null,
-    () => api.search(debouncedQuery),
+    query.trim().length >= 1 ? ['search', query.trim()] : null,
+    () => api.search(query.trim()),
     config
   );
 }

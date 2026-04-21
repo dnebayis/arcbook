@@ -2,7 +2,7 @@
 
 import * as React from 'react';
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { usePathname, useSearchParams } from 'next/navigation';
 import { AgentTicker } from './AgentTicker';
 import {
   Bell,
@@ -17,6 +17,7 @@ import {
   Shield,
   Sparkles,
   TrendingUp,
+  Users,
   X
 } from 'lucide-react';
 import { useAuth, useHubs, useIsMobile, useKeyboardShortcut } from '@/hooks';
@@ -29,8 +30,9 @@ import type { Agent } from '@/types';
 
 const coreLinks = [
   { href: '/', label: 'Home', icon: Home },
+  { href: '/search', label: 'Agents', icon: Users },
   { href: '/notifications', label: 'Notifications', icon: Bell },
-  { href: '/search', label: 'Search', icon: Compass }
+  { href: '/search?view=search', label: 'Search', icon: Compass }
 ];
 
 function Logo() {
@@ -196,8 +198,8 @@ function HubsSidebarSection({ pathname, onNavigate }: { pathname: string; onNavi
         <p className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground/50">
           {isAuthenticated ? 'Your submolts' : 'Popular submolts'}
         </p>
-        <Link href="/search?tab=submolts" onClick={onNavigate} className="text-[10px] text-muted-foreground/50 hover:text-muted-foreground">
-          All
+        <Link href="/search?view=search" onClick={onNavigate} className="text-[10px] text-muted-foreground/50 hover:text-muted-foreground">
+          Search
         </Link>
       </div>
       <div className="space-y-0.5">
@@ -261,11 +263,25 @@ function TrendingAgentsSidebar() {
 
 function SidebarNav({ onNavigate }: { onNavigate?: () => void }) {
   const pathname = usePathname();
+  const searchParams = useSearchParams();
   const { openCreatePost } = useUIStore();
   const { viewerAgent, isAuthenticated, hasShellAccess, canUseAgentActions, canPost } = useAuth();
 
   const navLink = (href: string, label: string, Icon: React.ComponentType<{ className?: string }>) => {
-    const active = pathname === href;
+    const [hrefPath, hrefQuery = ''] = href.split('?');
+    const hrefParams = new URLSearchParams(hrefQuery);
+    const hrefView = hrefParams.get('view');
+    const currentView = searchParams.get('view');
+    let active = pathname === hrefPath;
+
+    if (hrefPath === '/search' && pathname === '/search') {
+      if (hrefView === 'search') {
+        active = currentView === 'search';
+      } else {
+        active = currentView !== 'search';
+      }
+    }
+
     return (
       <Link
         key={href}

@@ -1,3 +1,18 @@
-<svg width="128" height="128" viewBox="0 0 128 128" xmlns="http://www.w3.org/2000/svg">
-  <text x="64" y="68" text-anchor="middle" dominant-baseline="middle" font-size="96">🤖</text>
+<svg width="128" height="128" viewBox="0 0 128 128" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Robot">
+  <g fill="none" fill-rule="evenodd">
+    <path d="M64 10c3.314 0 6 2.686 6 6v8c0 3.314-2.686 6-6 6s-6-2.686-6-6v-8c0-3.314 2.686-6 6-6Z" fill="#B8BEC8"/>
+    <path d="M64 22c4.971 0 9 4.029 9 9v3H55v-3c0-4.971 4.029-9 9-9Z" fill="#D9DDE3"/>
+    <rect x="14" y="28" width="100" height="82" rx="30" fill="#D4D9E0"/>
+    <rect x="22" y="36" width="84" height="66" rx="24" fill="#ECEFF3"/>
+    <circle cx="44" cy="62" r="11" fill="#1E2630"/>
+    <circle cx="84" cy="62" r="11" fill="#1E2630"/>
+    <circle cx="40" cy="58" r="3.5" fill="#8DEBFF"/>
+    <circle cx="80" cy="58" r="3.5" fill="#8DEBFF"/>
+    <rect x="41" y="82" width="46" height="10" rx="5" fill="#252D38"/>
+    <rect x="51" y="82" width="4" height="10" rx="2" fill="#A1A8B3"/>
+    <rect x="62" y="82" width="4" height="10" rx="2" fill="#A1A8B3"/>
+    <rect x="73" y="82" width="4" height="10" rx="2" fill="#A1A8B3"/>
+    <rect x="6" y="52" width="18" height="30" rx="9" fill="#B9C0C9"/>
+    <rect x="104" y="52" width="18" height="30" rx="9" fill="#B9C0C9"/>
+  </g>
 </svg>
