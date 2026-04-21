@@ -45,21 +45,32 @@ const { serializeAgent } = require('../src/utils/serializers');
 const publicDocs = require('../src/utils/publicDocs');
 const DmService = require('../src/services/DmService');
 const ArcIdentityService = require('../src/services/ArcIdentityService');
+const AgentService = require('../src/services/AgentService');
 const NotificationService = require('../src/services/NotificationService');
 const BackgroundWorkService = require('../src/services/BackgroundWorkService');
 const AgentActionService = require('../src/services/AgentActionService');
+const PaymentService = require('../src/services/PaymentService');
 const agentRoutes = require('../src/routes/agents');
 const apiRoutes = require('../src/routes');
 const homeRoutes = require('../src/routes/home');
 const postsRoutes = require('../src/routes/posts');
 const commentsRoutes = require('../src/routes/comments');
+const authRoutes = require('../src/routes/auth');
+const anchorRoutes = require('../src/routes/anchors');
+const mediaRoutes = require('../src/routes/media');
+const moderationRoutes = require('../src/routes/moderation');
+const reportRoutes = require('../src/routes/reports');
 const ownerRoutes = require('../src/routes/owner');
 const mcpRoutes = require('../src/routes/mcp');
+const skillRoutes = require('../src/routes/skills');
+const submoltRoutes = require('../src/routes/submolts');
+const paymentRoutes = require('../src/routes/payments');
 const config = require('../src/config');
 
 const {
   ApiError,
   BadRequestError,
+  ConflictError,
   NotFoundError,
   UnauthorizedError
 } = require('../src/utils/errors');
@@ -124,11 +135,16 @@ function createMockRes(onFinish = () => {}) {
 }
 
 function getRouteHandler(router, method, path) {
+  const layer = getRouteLayer(router, method, path);
+  return layer.route.stack[layer.route.stack.length - 1].handle;
+}
+
+function getRouteLayer(router, method, path) {
   const layer = router.stack.find((entry) => entry.route && entry.route.path === path && entry.route.methods?.[method]);
   if (!layer) {
     throw new Error(`Route not found: ${method.toUpperCase()} ${path}`);
   }
-  return layer.route.stack[layer.route.stack.length - 1].handle;
+  return layer;
 }
 
 async function invokeRoute(router, method, path, req = {}) {
@@ -686,6 +702,179 @@ describe('DM Helpers', () => {
     } finally {
       db.queryOne = originalQueryOne;
       delete require.cache[require.resolve('../src/services/DmService')];
+    }
+  });
+});
+
+describe('Payment Helpers', () => {
+  test('normalizeTransferError maps insufficient funds to conflict', () => {
+    const error = PaymentService.normalizeTransferError(
+      new Error('the asset amount owned by the wallet is insufficient for the transaction.'),
+      '1.0'
+    );
+
+    assert(error instanceof ConflictError, 'Expected insufficient funds to become ConflictError');
+    assertEqual(error.code, 'INSUFFICIENT_FUNDS');
+  });
+
+  test('normalizeTransferError maps authorization failures to bad request', () => {
+    const error = PaymentService.normalizeTransferError(
+      new Error('execution reverted: Not authorized'),
+      '1.0'
+    );
+
+    assert(error instanceof BadRequestError, 'Expected unauthorized wallet failures to become BadRequestError');
+    assertEqual(error.code, 'PAYMENT_NOT_AUTHORIZED');
+  });
+
+  test('transfer rejects when requested amount exceeds available balance', async () => {
+    const originalGetById = AgentService.getById;
+    const originalEnsureWallet = require('../src/services/WalletService').ensureWallet;
+    const originalGetBalance = PaymentService.getBalance;
+
+    AgentService.getById = async () => ({ id: 'agent-1', name: 'alice' });
+    require('../src/services/WalletService').ensureWallet = async () => ({
+      circle_wallet_id: 'wallet-1',
+      wallet_address: '0x1111111111111111111111111111111111111111'
+    });
+    PaymentService.getBalance = async () => ({
+      usdc: '0.250000',
+      walletAddress: '0x1111111111111111111111111111111111111111',
+      circleWalletId: 'wallet-1',
+      hasWallet: true
+    });
+
+    try {
+      let threw = false;
+      try {
+        await PaymentService.transfer({
+          fromAgentId: 'agent-1',
+          toAddress: '0x2222222222222222222222222222222222222222',
+          amountUsdc: '1.0'
+        });
+      } catch (error) {
+        threw = true;
+        assert(error instanceof ConflictError, 'Expected insufficient balance to reject with ConflictError');
+        assertEqual(error.code, 'INSUFFICIENT_FUNDS');
+      }
+
+      assert(threw, 'Expected transfer to reject before hitting Circle when balance is too low');
+    } finally {
+      AgentService.getById = originalGetById;
+      require('../src/services/WalletService').ensureWallet = originalEnsureWallet;
+      PaymentService.getBalance = originalGetBalance;
+    }
+  });
+});
+
+describe('Route Contracts', () => {
+  test('listed public API endpoints are mounted on the expected routers', () => {
+    const specs = [
+      { router: agentRoutes, method: 'post', path: '/register' },
+      { router: agentRoutes, method: 'get', path: '/me', middleware: 'requireAuth' },
+      { router: homeRoutes, method: 'get', path: '/', middleware: 'requireAuth' },
+      { router: postsRoutes, method: 'post', path: '/', middleware: 'requireAuth' },
+      { router: postsRoutes, method: 'get', path: '/', middleware: 'optionalAuth' },
+      { router: postsRoutes, method: 'post', path: '/:id/comments', middleware: 'requireAuth' },
+      { router: postsRoutes, method: 'post', path: '/:id/vote', middleware: 'requireAuth' },
+      { router: agentRoutes, method: 'post', path: '/:handle/follow', middleware: 'requireAuth' },
+      { router: agentRoutes, method: 'delete', path: '/:handle/follow', middleware: 'requireAuth' },
+      { router: agentRoutes, method: 'post', path: '/me/heartbeat', middleware: 'requireAuth' },
+      { router: agentRoutes, method: 'get', path: '/me/mentions', middleware: 'requireAuth' },
+      { router: agentRoutes, method: 'get', path: '/:handle/capabilities.md', middleware: 'optionalAuth' },
+      { router: agentRoutes, method: 'post', path: '/me/identity-token', middleware: 'requireAuth' },
+      { router: agentRoutes, method: 'post', path: '/verify-identity' },
+      { router: agentRoutes, method: 'get', path: '/:handle/network', middleware: 'optionalAuth' },
+      { router: agentRoutes, method: 'post', path: '/me/x-verify/start', middleware: 'requireAuth' },
+      { router: agentRoutes, method: 'post', path: '/me/x-verify/confirm', middleware: 'requireAuth' },
+      { router: anchorRoutes, method: 'get', path: '/:contentType/:id' },
+      { router: agentRoutes, method: 'post', path: '/me/arc/identity/register', middleware: 'requireAuth' },
+      { router: agentRoutes, method: 'get', path: '/me/arc/identity', middleware: 'requireAuth' },
+      { router: agentRoutes, method: 'patch', path: '/me/arc/identity', middleware: 'requireAuth' },
+      { router: postsRoutes, method: 'patch', path: '/:id', middleware: 'requireAuth' },
+      { router: postsRoutes, method: 'delete', path: '/:id', middleware: 'requireAuth' },
+      { router: postsRoutes, method: 'post', path: '/:id/upvote', middleware: 'requireAuth' },
+      { router: postsRoutes, method: 'post', path: '/:id/downvote', middleware: 'requireAuth' },
+      { router: commentsRoutes, method: 'patch', path: '/:id', middleware: 'requireAuth' },
+      { router: commentsRoutes, method: 'delete', path: '/:id', middleware: 'requireAuth' },
+      { router: commentsRoutes, method: 'post', path: '/:id/upvote', middleware: 'requireAuth' },
+      { router: commentsRoutes, method: 'post', path: '/:id/downvote', middleware: 'requireAuth' },
+      { router: require('../src/routes/verify'), method: 'post', path: '/', middleware: 'requireAuth' },
+      { router: mediaRoutes, method: 'post', path: '/images', middleware: 'requireAuth' },
+      { router: submoltRoutes, method: 'post', path: '/:slug/moderators', middleware: 'requireAuth' },
+      { router: submoltRoutes, method: 'delete', path: '/:slug/moderators/:agentName', middleware: 'requireAuth' },
+      { router: submoltRoutes, method: 'get', path: '/:slug/moderators', middleware: 'optionalAuth' },
+      { router: moderationRoutes, method: 'get', path: '/queue', middleware: 'requireAuth' },
+      { router: moderationRoutes, method: 'post', path: '/actions', middleware: 'requireAuth' },
+      { router: moderationRoutes, method: 'post', path: '/reports/:id/resolve', middleware: 'requireAuth' },
+      { router: moderationRoutes, method: 'post', path: '/reports/:id/dismiss', middleware: 'requireAuth' },
+      { router: reportRoutes, method: 'post', path: '/', middleware: 'requireAuth' },
+      { router: paymentRoutes, method: 'get', path: '/wallet', middleware: 'requireAuth' },
+      { router: paymentRoutes, method: 'get', path: '/balance', middleware: 'requireAuth' },
+      { router: paymentRoutes, method: 'post', path: '/transfer', middleware: 'requireAuth' },
+      { router: paymentRoutes, method: 'get', path: '/history', middleware: 'requireAuth' },
+      { router: agentRoutes, method: 'get', path: '/:handle/reputation', middleware: 'optionalAuth' },
+      { router: agentRoutes, method: 'post', path: '/:handle/reputation/feedback', middleware: 'requireAuth' },
+      { router: agentRoutes, method: 'post', path: '/me/validation/request', middleware: 'requireAuth' },
+      { router: agentRoutes, method: 'post', path: '/validation/respond', middleware: 'requireAuth' },
+      { router: agentRoutes, method: 'get', path: '/validation/:hash/status', middleware: 'optionalAuth' },
+      { router: skillRoutes, method: 'get', path: '/', middleware: 'optionalAuth' },
+      { router: skillRoutes, method: 'post', path: '/', middleware: 'requireAuth' },
+      { router: agentRoutes, method: 'get', path: '/:handle/skills', middleware: 'optionalAuth' },
+      { router: agentRoutes, method: 'get', path: '/', middleware: undefined },
+      { router: ownerRoutes, method: 'get', path: '/developer-apps', middleware: 'requireOwnerAuth' },
+      { router: ownerRoutes, method: 'post', path: '/developer-apps', middleware: 'requireOwnerAuth' },
+      { router: ownerRoutes, method: 'delete', path: '/developer-apps/:id', middleware: 'requireOwnerAuth' },
+      { router: authRoutes, method: 'post', path: '/owner/magic-link' },
+      { router: authRoutes, method: 'get', path: '/owner/verify' },
+      { router: authRoutes, method: 'post', path: '/owner/confirm' },
+      { router: ownerRoutes, method: 'get', path: '/me', middleware: 'requireOwnerAuth' },
+      { router: ownerRoutes, method: 'post', path: '/agents/:id/refresh-api-key', middleware: 'requireOwnerAuth' },
+      { router: ownerRoutes, method: 'post', path: '/anchors/:contentType/:id/retry', middleware: 'requireOwnerAuth' },
+      { router: ownerRoutes, method: 'delete', path: '/account', middleware: 'requireOwnerAuth' }
+    ];
+
+    for (const spec of specs) {
+      const layer = getRouteLayer(spec.router, spec.method, spec.path);
+      assert(layer, `Expected route ${spec.method.toUpperCase()} ${spec.path}`);
+      if (spec.middleware) {
+        const names = layer.route.stack.map((entry) => entry.handle.name);
+        assert(
+          names.includes(spec.middleware),
+          `Expected ${spec.method.toUpperCase()} ${spec.path} to include ${spec.middleware}, got ${names.join(', ')}`
+        );
+      }
+    }
+  });
+
+  test('capabilities markdown endpoint renders a public manifest', async () => {
+    const originalGetByHandle = AgentService.getByHandle;
+    AgentService.getByHandle = async () => ({
+      id: 'agent-1',
+      name: 'alice',
+      display_name: 'Alice',
+      description: 'Capability manifest smoke',
+      karma: 7,
+      capabilities: JSON.stringify({
+        schema: 'arcbook.capabilities/v1',
+        version: '1.0',
+        tags: ['search', 'moderation']
+      })
+    });
+
+    try {
+      const res = await invokeRoute(agentRoutes, 'get', '/:handle/capabilities.md', {
+        params: { handle: 'alice' },
+        agent: null
+      });
+
+      assertEqual(res.statusCode, 200);
+      assertEqual(res.headers['Content-Type'], 'text/markdown; charset=utf-8');
+      assert(String(res.body).includes('# @alice Capabilities'));
+      assert(String(res.body).includes('arcbook.capabilities/v1'));
+      assert(String(res.body).includes('search'));
+    } finally {
+      AgentService.getByHandle = originalGetByHandle;
     }
   });
 });

@@ -45,6 +45,52 @@ function formatRegisterResponse(result) {
   };
 }
 
+function renderCapabilitiesMarkdown(agent) {
+  let capabilities = agent?.capabilities || null;
+  if (typeof capabilities === 'string') {
+    try {
+      capabilities = JSON.parse(capabilities);
+    } catch {
+      capabilities = { raw: capabilities };
+    }
+  }
+
+  const tags = Array.isArray(capabilities?.tags) ? capabilities.tags : [];
+  const schema = capabilities?.schema || null;
+  const version = capabilities?.version || null;
+  const lines = [
+    `# @${agent.name} Capabilities`,
+    '',
+    agent.description || 'No description provided.',
+    '',
+    '## Summary',
+    `- Display name: ${agent.display_name || agent.name}`,
+    `- Karma: ${Number(agent.karma || 0)}`,
+    `- Profile: ${config.app.webBaseUrl}/u/${agent.name}`,
+    '',
+    '## Capability Manifest'
+  ];
+
+  if (schema) lines.push(`- Schema: ${schema}`);
+  if (version) lines.push(`- Version: ${version}`);
+  if (tags.length) {
+    lines.push('- Tags:');
+    tags.forEach((tag) => lines.push(`  - ${tag}`));
+  }
+
+  if (!schema && !version && !tags.length && !capabilities?.raw) {
+    lines.push('- No structured capabilities declared.');
+  }
+
+  if (capabilities?.raw) {
+    lines.push('', '## Raw Capabilities', '```', String(capabilities.raw), '```');
+  } else if (capabilities && Object.keys(capabilities).length > 0) {
+    lines.push('', '## Raw Capabilities', '```json', JSON.stringify(capabilities, null, 2), '```');
+  }
+
+  return lines.join('\n');
+}
+
 const router = Router();
 
 router.post('/register', registerLimiter, asyncHandler(async (req, res) => {
@@ -318,6 +364,12 @@ router.delete('/:handle/follow', requireAuth, asyncHandler(async (req, res) => {
   success(res, { following: false });
 }));
 
+router.get('/:handle/capabilities.md', optionalAuth, asyncHandler(async (req, res) => {
+  const agent = await AgentService.getByHandle(req.params.handle, req.agent?.id || null);
+  res.setHeader('Content-Type', 'text/markdown; charset=utf-8');
+  res.status(200).send(renderCapabilitiesMarkdown(agent));
+}));
+
 router.get('/:handle/arc-metadata', asyncHandler(async (req, res) => {
   const metadata = await ArcIdentityService.getMetadataByAgentName(req.params.handle);
   res.setHeader('Content-Type', 'application/json');
@@ -444,5 +496,6 @@ router.get('/:handle', optionalAuth, asyncHandler(async (req, res) => {
 }));
 
 router.buildArcIdentityBlock = buildArcIdentityBlock;
+router.renderCapabilitiesMarkdown = renderCapabilitiesMarkdown;
 
 module.exports = router;

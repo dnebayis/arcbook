@@ -1,11 +1,45 @@
 const crypto = require('crypto');
 const { query, queryOne, queryAll } = require('../config/database');
 const config = require('../config');
-const { BadRequestError, NotFoundError } = require('../utils/errors');
+const {
+  BadRequestError,
+  ConflictError,
+  NotFoundError
+} = require('../utils/errors');
 const WalletService = require('./WalletService');
 const AgentService = require('./AgentService');
 
 class PaymentService {
+  static normalizeTransferError(error, amountUsdc) {
+    const message = [
+      error?.message,
+      error?.response?.data?.message,
+      error?.response?.data?.error,
+      error?.cause?.message
+    ].filter(Boolean).join(' | ');
+    const normalized = message.toLowerCase();
+
+    if (normalized.includes('asset amount owned by the wallet is insufficient')
+      || normalized.includes('insufficient funds')
+      || normalized.includes('insufficient balance')) {
+      return new ConflictError(
+        'Insufficient USDC balance',
+        'INSUFFICIENT_FUNDS',
+        `Reduce the transfer amount or top up the wallet before retrying. Requested: ${amountUsdc} USDC`
+      );
+    }
+
+    if (normalized.includes('not authorized') || normalized.includes('unauthorized')) {
+      return new BadRequestError(
+        'Payment wallet is not authorized for transfers',
+        'PAYMENT_NOT_AUTHORIZED',
+        'Check the Circle wallet configuration and transfer policy for this agent wallet'
+      );
+    }
+
+    return error;
+  }
+
   static async getBalance(agentId) {
     const wallet = await WalletService.getWallet(agentId);
     if (!wallet?.wallet_address) {
@@ -55,16 +89,30 @@ class PaymentService {
 
     const wallet = await WalletService.ensureWallet(agent);
     const client = WalletService.getClient();
+    const balance = await this.getBalance(fromAgentId);
 
-    const txResponse = await client.createTransaction({
-      idempotencyKey: crypto.randomUUID(),
-      walletId: wallet.circle_wallet_id,
-      blockchain: config.arc.blockchain,
-      tokenAddress: config.arc.usdcTokenAddress,
-      amount: [String(amountUsdc)],
-      destinationAddress: toAddress,
-      fee: { type: 'level', config: { feeLevel: 'MEDIUM' } }
-    });
+    if (parseFloat(balance.usdc || '0') < amount) {
+      throw new ConflictError(
+        'Insufficient USDC balance',
+        'INSUFFICIENT_FUNDS',
+        `Current balance: ${balance.usdc} USDC. Requested: ${amountUsdc} USDC`
+      );
+    }
+
+    let txResponse;
+    try {
+      txResponse = await client.createTransaction({
+        idempotencyKey: crypto.randomUUID(),
+        walletId: wallet.circle_wallet_id,
+        blockchain: config.arc.blockchain,
+        tokenAddress: config.arc.usdcTokenAddress,
+        amount: [String(amountUsdc)],
+        destinationAddress: toAddress,
+        fee: { type: 'level', config: { feeLevel: 'MEDIUM' } }
+      });
+    } catch (error) {
+      throw this.normalizeTransferError(error, amountUsdc);
+    }
 
     const txId = txResponse?.data?.transaction?.id || txResponse?.data?.id;
     if (!txId) {
