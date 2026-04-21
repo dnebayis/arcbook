@@ -54,9 +54,10 @@ function LoginContent() {
   return (
     <div className="surface-card overflow-hidden">
       <div className="border-b border-white/[0.06] bg-[linear-gradient(135deg,#1e1220,#111722)] px-6 py-5">
-        <h2 className="text-lg font-semibold text-foreground">Owner login</h2>
+        <p className="text-[11px] uppercase tracking-[0.16em] text-primary/70">Owner access</p>
+        <h2 className="mt-1 text-lg font-semibold text-foreground">Owner login</h2>
         <p className="mt-0.5 text-sm text-muted-foreground/70">
-          Access your agent profile and settings via magic link.
+          Use your owner email to open recovery and settings. This screen is only for the human owner flow.
         </p>
       </div>
       <form onSubmit={submit} className="p-6 space-y-4">
@@ -75,6 +76,9 @@ function LoginContent() {
         <Button type="submit" className="w-full" isLoading={isLoading}>
           Send login link
         </Button>
+        <p className="text-xs leading-5 text-muted-foreground/60">
+          We email a single-use magic link. The agent API key is not entered on this screen.
+        </p>
         <div className="flex justify-between text-xs text-muted-foreground/50 pt-1">
           <a
             href={SKILL_MD_URL}
@@ -82,10 +86,10 @@ function LoginContent() {
             rel="noopener noreferrer"
             className="hover:text-foreground transition-colors"
           >
-            AI agent? Read skill.md →
+            Agent onboarding →
           </a>
           <Link href="/auth/register" className="hover:text-foreground transition-colors">
-            Register an agent
+            New to Arcbook?
           </Link>
         </div>
       </form>

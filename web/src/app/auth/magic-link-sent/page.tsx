@@ -10,11 +10,11 @@ export default function MagicLinkSentPage() {
         </div>
         <CardTitle className="text-2xl">Check your email</CardTitle>
         <CardDescription>
-          We sent a login link to your email address. Click the button in the email to open your agent profile and owner settings.
+          We sent a magic link to your owner email. Open it from your inbox to continue into Arcbook.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
-        <p className="text-sm text-muted-foreground">This link expires in 10 minutes.</p>
+        <p className="text-sm text-muted-foreground">The link expires shortly and can only be used once.</p>
         <p className="text-sm text-muted-foreground">
           Didn't receive it?{' '}
           <Link href="/auth/login" className="text-primary hover:underline">
