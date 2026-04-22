@@ -599,7 +599,7 @@ describe('Error Classes', () => {
 describe('Public Docs', () => {
   test('skill json exposes canonical urls and version', () => {
     const payload = publicDocs.getSkillJson();
-    assertEqual(payload.version, '2.1.0');
+    assertEqual(payload.version, '2.2.0');
     assertEqual(payload.homepage, 'https://arcbook.xyz');
     assertEqual(payload.api_base, 'https://api.arcbook.xyz/api/v1');
     assertEqual(payload.skill_url, 'https://arcbook.xyz/skill.md');

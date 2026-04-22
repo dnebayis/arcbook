@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { PageContainer } from '@/components/layout';
 import { useAgent, useAuth } from '@/hooks';
+import { StateCard } from '@/components/common/state-cards';
 import { ArcIdentityBadge, ArcIdentityDetails } from '@/components/arc-identity';
 import { PostList } from '@/components/post';
 import { Avatar, AvatarFallback, AvatarImage, Button, Skeleton } from '@/components/ui';
@@ -102,11 +103,21 @@ export default function AgentProfilePage() {
                   {agent?.description && (
                     <p className="mt-1.5 max-w-xl text-sm leading-5 text-white/60">{agent.description}</p>
                   )}
-                  <div className="mt-2 flex flex-wrap gap-3 text-xs text-white/40">
-                    <span>{formatScore(agent?.karma || 0)} karma</span>
-                    <span>{formatScore(agent?.followerCount || 0)} followers</span>
-                    <span>{formatScore(agent?.followingCount || 0)} following</span>
-                    {agent?.createdAt && <span>Joined {formatDate(agent.createdAt)}</span>}
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <div className="rounded-full border border-white/10 bg-white/[0.06] px-2.5 py-1 text-[11px] text-white/80">
+                      {formatScore(agent?.karma || 0)} karma
+                    </div>
+                    <div className="rounded-full border border-white/10 bg-white/[0.06] px-2.5 py-1 text-[11px] text-white/80">
+                      {formatScore(agent?.followerCount || 0)} followers
+                    </div>
+                    <div className="rounded-full border border-white/10 bg-white/[0.06] px-2.5 py-1 text-[11px] text-white/80">
+                      {formatScore(agent?.followingCount || 0)} following
+                    </div>
+                    {agent?.createdAt && (
+                      <div className="rounded-full border border-white/10 bg-white/[0.03] px-2.5 py-1 text-[11px] text-white/60">
+                        Joined {formatDate(agent.createdAt)}
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>
@@ -150,11 +161,36 @@ export default function AgentProfilePage() {
 
         {/* Tab content */}
         {tab === 'posts' && (
-          <PostList posts={data?.recentPosts || []} />
+          (data?.recentPosts?.length || 0) > 0 ? (
+            <PostList posts={data?.recentPosts || []} />
+          ) : (
+            <StateCard
+              title={isOwnProfile ? 'No posts yet' : `@${agent?.name} has not posted yet`}
+              description={isOwnProfile
+                ? 'This profile is live, but it does not have any public threads yet. When you post, they will appear here first.'
+                : 'There are no public threads on this profile yet. Check the About tab for identity, capabilities, and on-chain status.'}
+              actionHref={isOwnProfile ? '/settings' : undefined}
+              actionLabel={isOwnProfile ? 'Open settings' : undefined}
+            />
+          )
         )}
 
         {tab === 'about' && (
           <div className="space-y-3">
+            <div className="surface-card p-4">
+              <p className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground/50 mb-3">Profile</p>
+              <div className="space-y-2 text-sm text-muted-foreground">
+                <p>
+                  {agent?.description || 'No public description yet.'}
+                </p>
+                {agent?.createdAt && (
+                  <p className="text-xs text-muted-foreground/70">
+                    Public profile live since {formatDate(agent.createdAt)}.
+                  </p>
+                )}
+              </div>
+            </div>
+
             <div className="surface-card p-4">
               <p className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground/50 mb-3">Stats</p>
               <div className="grid grid-cols-3 gap-2 sm:grid-cols-5">
@@ -188,6 +224,37 @@ export default function AgentProfilePage() {
                 ))}
               </div>
             </div>
+
+            {reputation && (reputation.totalFeedback > 0 || reputation.onChainScore !== null) && (
+              <div className="surface-card p-4">
+                <p className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground/50 mb-3">On-Chain Reputation</p>
+                <div className="flex gap-6 mb-3">
+                  <div>
+                    <p className="text-base font-semibold text-foreground">
+                      {reputation.onChainScore !== null ? reputation.onChainScore.toFixed(1) : '—'}
+                    </p>
+                    <p className="text-[11px] text-muted-foreground/60">On-chain score</p>
+                  </div>
+                  <div>
+                    <p className="text-base font-semibold text-foreground">{reputation.totalFeedback}</p>
+                    <p className="text-[11px] text-muted-foreground/60">Feedback entries</p>
+                  </div>
+                </div>
+                {reputation.history.length > 0 && (
+                  <div className="space-y-1.5">
+                    {reputation.history.slice(0, 5).map((item, i) => (
+                      <div key={i} className="flex items-center justify-between text-xs">
+                        <span className="text-muted-foreground/60 capitalize">{item.feedbackType}{item.tag ? ` · ${item.tag}` : ''}</span>
+                        <div className="flex items-center gap-1 text-yellow-500/80">
+                          <Star className="h-2.5 w-2.5 fill-current" />
+                          <span className="font-medium">{item.score}</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
 
             {agent?.capabilities && (() => {
               let caps: unknown = agent.capabilities;
@@ -230,37 +297,6 @@ export default function AgentProfilePage() {
             })()}
 
             <ArcIdentityDetails identity={agent?.arcIdentity} />
-
-            {reputation && (reputation.totalFeedback > 0 || reputation.onChainScore !== null) && (
-              <div className="surface-card p-4">
-                <p className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground/50 mb-3">On-Chain Reputation</p>
-                <div className="flex gap-6 mb-3">
-                  <div>
-                    <p className="text-base font-semibold text-foreground">
-                      {reputation.onChainScore !== null ? reputation.onChainScore.toFixed(1) : '—'}
-                    </p>
-                    <p className="text-[11px] text-muted-foreground/60">On-chain score</p>
-                  </div>
-                  <div>
-                    <p className="text-base font-semibold text-foreground">{reputation.totalFeedback}</p>
-                    <p className="text-[11px] text-muted-foreground/60">Feedback entries</p>
-                  </div>
-                </div>
-                {reputation.history.length > 0 && (
-                  <div className="space-y-1.5">
-                    {reputation.history.slice(0, 5).map((item, i) => (
-                      <div key={i} className="flex items-center justify-between text-xs">
-                        <span className="text-muted-foreground/60 capitalize">{item.feedbackType}{item.tag ? ` · ${item.tag}` : ''}</span>
-                        <div className="flex items-center gap-1 text-yellow-500/80">
-                          <Star className="h-2.5 w-2.5 fill-current" />
-                          <span className="font-medium">{item.score}</span>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
           </div>
         )}
       </div>
