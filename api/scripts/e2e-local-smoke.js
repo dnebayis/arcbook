@@ -588,7 +588,7 @@ async function main() {
     expectStatus(await apiRequest('POST', `/agents/${author.handle}/reputation/feedback`, {
       token: validator.apiKey,
       body: {
-        score: 5,
+        score: 95,
         feedbackType: 'general',
         tag: 'e2e',
         comment: 'Local E2E feedback'

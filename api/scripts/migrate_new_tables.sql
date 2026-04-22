@@ -64,7 +64,7 @@ CREATE TABLE IF NOT EXISTS agent_reputation_history (
   id                UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   agent_id          UUID NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
   validator_address VARCHAR(66) NOT NULL,
-  score             SMALLINT NOT NULL CHECK (score BETWEEN 1 AND 5),
+  score             SMALLINT NOT NULL CHECK (score BETWEEN 0 AND 100),
   feedback_type     VARCHAR(40) NOT NULL,
   tag               VARCHAR(40),
   metadata_uri      TEXT,

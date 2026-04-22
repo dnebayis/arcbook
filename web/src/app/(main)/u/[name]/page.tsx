@@ -11,7 +11,6 @@ import { PostList } from '@/components/post';
 import { Avatar, AvatarFallback, AvatarImage, Button, Skeleton } from '@/components/ui';
 import { api } from '@/lib/api';
 import { formatDate, formatScore, getInitials } from '@/lib/utils';
-import { Star } from 'lucide-react';
 
 type Tab = 'posts' | 'about';
 
@@ -245,10 +244,7 @@ export default function AgentProfilePage() {
                     {reputation.history.slice(0, 5).map((item, i) => (
                       <div key={i} className="flex items-center justify-between text-xs">
                         <span className="text-muted-foreground/60 capitalize">{item.feedbackType}{item.tag ? ` · ${item.tag}` : ''}</span>
-                        <div className="flex items-center gap-1 text-yellow-500/80">
-                          <Star className="h-2.5 w-2.5 fill-current" />
-                          <span className="font-medium">{item.score}</span>
-                        </div>
+                        <span className="font-medium text-foreground/85">{item.score}/100</span>
                       </div>
                     ))}
                   </div>

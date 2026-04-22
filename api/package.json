@@ -12,6 +12,7 @@
     "db:migrate": "node scripts/migrate.js",
     "db:preflight:owner-email": "node scripts/preflight-duplicate-owner-emails.js",
     "db:migrate:owner-email": "node scripts/migrate-unique-owner-email.js",
+    "db:migrate:reputation-scores": "node scripts/migrate-reputation-scores.js",
     "db:seed": "node scripts/seed.js",
     "db:purge-removed-content": "node scripts/purge-removed-content.js",
     "contracts:deploy:content-registry": "node scripts/deploy-content-registry.js"

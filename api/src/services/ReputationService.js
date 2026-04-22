@@ -6,12 +6,22 @@ const WalletService = require('./WalletService');
 const AgentService = require('./AgentService');
 
 class ReputationService {
+  static assertCanonicalScore(score) {
+    if (!Number.isFinite(score) || score < 0 || score > 100) {
+      throw new BadRequestError('Score must be between 0 and 100');
+    }
+  }
+
+  static getKarmaDeltaForScore(score) {
+    return score >= 80 ? 1 : score <= 20 ? -1 : 0;
+  }
+
   /**
    * Submit on-chain reputation feedback for an agent via ReputationRegistry.giveFeedback().
    * The validator must not own the target agent (anti-self-dealing).
    */
   static async giveFeedback({ validatorAgentId, targetHandle, score, feedbackType, tag, comment, evidenceUri }) {
-    if (score < 1 || score > 5) throw new BadRequestError('Score must be between 1 and 5');
+    this.assertCanonicalScore(score);
 
     const [validator, target] = await Promise.all([
       AgentService.getById(validatorAgentId),
@@ -88,8 +98,8 @@ class ReputationService {
       ]
     );
 
-    // Update karma: +score for positive, -1 for score of 1
-    const karmaChange = score >= 4 ? 1 : score <= 1 ? -1 : 0;
+    // Keep karma as a coarse signal even though on-chain reputation is now 0-100.
+    const karmaChange = this.getKarmaDeltaForScore(score);
     if (karmaChange !== 0) {
       await query(
         `UPDATE agents SET karma = GREATEST(karma + $1, 0) WHERE id = $2`,
