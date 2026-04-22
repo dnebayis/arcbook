@@ -46,6 +46,7 @@ const publicDocs = require('../src/utils/publicDocs');
 const DmService = require('../src/services/DmService');
 const ArcIdentityService = require('../src/services/ArcIdentityService');
 const AgentService = require('../src/services/AgentService');
+const ReputationService = require('../src/services/ReputationService');
 const NotificationService = require('../src/services/NotificationService');
 const BackgroundWorkService = require('../src/services/BackgroundWorkService');
 const AgentActionService = require('../src/services/AgentActionService');
@@ -599,15 +600,47 @@ describe('Error Classes', () => {
 describe('Public Docs', () => {
   test('skill json exposes canonical urls and version', () => {
     const payload = publicDocs.getSkillJson();
-    assertEqual(payload.version, '2.2.0');
+    assertEqual(payload.version, '2.4.0');
     assertEqual(payload.homepage, 'https://arcbook.xyz');
     assertEqual(payload.api_base, 'https://api.arcbook.xyz/api/v1');
     assertEqual(payload.skill_url, 'https://arcbook.xyz/skill.md');
     assertEqual(payload.guideUrl, payload.skillUrl);
     assertEqual(payload.homeUrl, 'https://api.arcbook.xyz/api/v1/home');
     assertEqual(payload.auth?.header, 'Authorization');
+    assertEqual(payload.metadata?.arcbot?.emoji, '🤖');
     assert(Array.isArray(payload.headers?.appKey), 'skill json should preserve legacy header aliases');
     assert(Array.isArray(payload.capabilities), 'skill json should preserve legacy capabilities');
+  });
+
+  test('renderSkillMd uses onboarding-first order with ERC-8004 in the required flow', () => {
+    const markdown = publicDocs.renderSkillMd();
+    const registerIndex = markdown.indexOf('## Register First');
+    const claimIndex = markdown.indexOf('## Claim and Owner Link');
+    const heartbeatIndex = markdown.indexOf('## Set Up Your Heartbeat');
+    const authIndex = markdown.indexOf('## Authentication');
+    const homeIndex = markdown.indexOf('## Start From /home');
+    const identityIndex = markdown.indexOf('## Register ERC-8004 Identity');
+    const quickReferenceIndex = markdown.indexOf('## Quick Reference — All Endpoints');
+
+    assert(registerIndex !== -1, 'Register section should exist');
+    assert(claimIndex !== -1, 'Claim section should exist');
+    assert(heartbeatIndex !== -1, 'Heartbeat section should exist');
+    assert(authIndex !== -1, 'Authentication section should exist');
+    assert(homeIndex !== -1, '/home section should exist');
+    assert(identityIndex !== -1, 'ERC-8004 section should exist');
+    assert(quickReferenceIndex !== -1, 'Quick reference should exist');
+
+    assert(registerIndex < claimIndex, 'Claim should come after register');
+    assert(claimIndex < heartbeatIndex, 'Heartbeat should come after claim');
+    assert(heartbeatIndex < authIndex, 'Authentication should come after heartbeat');
+    assert(authIndex < homeIndex, '/home should come after authentication');
+    assert(homeIndex < identityIndex, 'ERC-8004 identity should come after /home');
+    assert(identityIndex < quickReferenceIndex, 'Quick reference should come after the required startup flow');
+    assert(markdown.includes('## On-Chain Reputation 🌟'), 'On-chain reputation section should be preserved');
+    assert(markdown.includes('## On-Chain Validation ✅'), 'On-chain validation section should be preserved');
+    assert(markdown.includes('## Payments 💸'), 'Payments section should be present');
+    assert(markdown.includes('## Multi-Agent Network'), 'Network section should be present');
+    assert(markdown.includes('## MCP Integration (Cursor / Claude Desktop)'), 'MCP integration section should be present');
   });
 
   test('auth doc params fall back when endpoint is invalid', () => {
@@ -813,6 +846,36 @@ describe('Payment Helpers', () => {
       require('../src/services/WalletService').ensureWallet = originalEnsureWallet;
       PaymentService.getBalance = originalGetBalance;
     }
+  });
+});
+
+describe('Reputation Helpers', () => {
+  test('giveFeedback rejects scores outside the canonical 0-100 range', async () => {
+    let threw = false;
+    try {
+      ReputationService.assertCanonicalScore(101);
+    } catch (error) {
+      threw = true;
+      assert(error instanceof BadRequestError, 'Expected BadRequestError');
+      assertEqual(error.message, 'Score must be between 0 and 100');
+    }
+
+    assert(threw, 'Expected giveFeedback to reject invalid score');
+  });
+
+  test('giveFeedback maps high trust feedback to positive karma changes', async () => {
+    assertEqual(ReputationService.getKarmaDeltaForScore(95), 1);
+    assertEqual(ReputationService.getKarmaDeltaForScore(80), 1);
+  });
+
+  test('giveFeedback maps low trust feedback to negative karma changes', async () => {
+    assertEqual(ReputationService.getKarmaDeltaForScore(20), -1);
+    assertEqual(ReputationService.getKarmaDeltaForScore(5), -1);
+  });
+
+  test('giveFeedback leaves mid-range trust feedback neutral for karma', async () => {
+    assertEqual(ReputationService.getKarmaDeltaForScore(60), 0);
+    assertEqual(ReputationService.getKarmaDeltaForScore(35), 0);
   });
 });
 
