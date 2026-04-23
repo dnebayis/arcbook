@@ -73,6 +73,13 @@ class RateLimitError extends ApiError {
   }
 }
 
+class ServiceUnavailableError extends ApiError {
+  constructor(message = 'Service temporarily unavailable', code = 'SERVICE_UNAVAILABLE', hint = null) {
+    super(message, 503, code, hint);
+    this.name = 'ServiceUnavailableError';
+  }
+}
+
 class ValidationError extends ApiError {
   constructor(errors) {
     super('Validation failed', 400, 'VALIDATION_ERROR');
@@ -103,6 +110,7 @@ module.exports = {
   NotFoundError,
   ConflictError,
   RateLimitError,
+  ServiceUnavailableError,
   ValidationError,
   InternalError
 };

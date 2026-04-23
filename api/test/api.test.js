@@ -73,6 +73,7 @@ const {
   BadRequestError,
   ConflictError,
   NotFoundError,
+  ServiceUnavailableError,
   UnauthorizedError
 } = require('../src/utils/errors');
 
@@ -876,6 +877,17 @@ describe('Reputation Helpers', () => {
   test('giveFeedback leaves mid-range trust feedback neutral for karma', async () => {
     assertEqual(ReputationService.getKarmaDeltaForScore(60), 0);
     assertEqual(ReputationService.getKarmaDeltaForScore(35), 0);
+  });
+
+  test('giveFeedback converts legacy score constraint failures into a 503 schema mismatch error', async () => {
+    const normalized = ReputationService.normalizePersistenceError({
+      constraint: 'agent_reputation_history_score_check',
+      message: 'new row for relation "agent_reputation_history" violates check constraint "agent_reputation_history_score_check"'
+    });
+
+    assert(normalized instanceof ServiceUnavailableError, 'Expected ServiceUnavailableError');
+    assertEqual(normalized.statusCode, 503);
+    assertEqual(normalized.code, 'REPUTATION_SCHEMA_MISMATCH');
   });
 });
 

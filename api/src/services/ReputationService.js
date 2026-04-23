@@ -1,7 +1,7 @@
 const crypto = require('crypto');
 const { queryOne, queryAll, query } = require('../config/database');
 const config = require('../config');
-const { BadRequestError, NotFoundError, UnauthorizedError } = require('../utils/errors');
+const { BadRequestError, NotFoundError, ServiceUnavailableError, UnauthorizedError } = require('../utils/errors');
 const WalletService = require('./WalletService');
 const AgentService = require('./AgentService');
 
@@ -14,6 +14,25 @@ class ReputationService {
 
   static getKarmaDeltaForScore(score) {
     return score >= 80 ? 1 : score <= 20 ? -1 : 0;
+  }
+
+  static normalizePersistenceError(error) {
+    const message = String(error?.message || '');
+    const constraint = String(error?.constraint || '');
+
+    if (
+      constraint === 'agent_reputation_history_score_check' ||
+      message.includes('agent_reputation_history_score_check') ||
+      /score between 1 and 5/i.test(message)
+    ) {
+      return new ServiceUnavailableError(
+        'Reputation feedback is temporarily unavailable',
+        'REPUTATION_SCHEMA_MISMATCH',
+        'Database migration for canonical 0-100 reputation scores has not been applied yet'
+      );
+    }
+
+    return error;
   }
 
   /**
@@ -77,26 +96,31 @@ class ReputationService {
       // Continue — persist off-chain even if on-chain fails
     }
 
-    const record = await queryOne(
-      `INSERT INTO agent_reputation_history
-         (agent_id, validator_address, score, feedback_type, tag,
-          metadata_uri, evidence_uri, comment, feedback_hash, tx_hash, chain_id)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-       RETURNING *`,
-      [
-        target.id,
-        validator.arc_wallet_address || 'off-chain',
-        score,
-        feedbackType || 'general',
-        tag || null,
-        metadataUri,
-        evidenceUri || null,
-        commentText,
-        feedbackHash,
-        txHash,
-        config.arc.chainId
-      ]
-    );
+    let record;
+    try {
+      record = await queryOne(
+        `INSERT INTO agent_reputation_history
+           (agent_id, validator_address, score, feedback_type, tag,
+            metadata_uri, evidence_uri, comment, feedback_hash, tx_hash, chain_id)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+         RETURNING *`,
+        [
+          target.id,
+          validator.arc_wallet_address || 'off-chain',
+          score,
+          feedbackType || 'general',
+          tag || null,
+          metadataUri,
+          evidenceUri || null,
+          commentText,
+          feedbackHash,
+          txHash,
+          config.arc.chainId
+        ]
+      );
+    } catch (error) {
+      throw this.normalizePersistenceError(error);
+    }
 
     // Keep karma as a coarse signal even though on-chain reputation is now 0-100.
     const karmaChange = this.getKarmaDeltaForScore(score);
