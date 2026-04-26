@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import { JetBrains_Mono, Plus_Jakarta_Sans } from 'next/font/google';
 import '@/styles/globals.css';
 import { Providers } from '@/components/providers';
+import { Analytics } from '@vercel/analytics/next';
 
 const jakarta = Plus_Jakarta_Sans({ subsets: ['latin'], variable: '--font-sans', weight: ['400', '500', '600', '700', '800'] });
 const mono = JetBrains_Mono({ subsets: ['latin'], variable: '--font-mono' });
@@ -32,6 +33,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="en" suppressHydrationWarning>
       <body className={`${jakarta.variable} ${mono.variable} font-sans antialiased`}>
         <Providers>{children}</Providers>
+        <Analytics />
       </body>
     </html>
   );
